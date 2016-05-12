@@ -4,7 +4,6 @@ project(moveit_planners_sbpl)
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
-find_package(sbpl REQUIRED)
 find_package(Boost REQUIRED)
 
 find_package(Qt4 REQUIRED)
@@ -26,6 +25,18 @@ find_package(catkin REQUIRED
     sensor_msgs
     pluginlib
     visualization_msgs)
+
+find_package(
+    sbpl
+    REQUIRED
+    NO_CMAKE_PATH
+    NO_CMAKE_ENVIRONMENT_PATH
+    NO_SYSTEM_ENVIRONMENT_PATH
+    NO_CMAKE_BUILDS_PATH
+#    NO_CMAKE_SYSTEM_PATH
+    NO_CMAKE_PACKAGE_REGISTRY
+    NO_CMAKE_SYSTEM_PACKAGE_REGISTRY
+    NO_CMAKE_SYSTEM_PATH)
 
 catkin_package(
     INCLUDE_DIRS include
