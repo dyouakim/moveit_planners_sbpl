@@ -186,7 +186,30 @@ planning_interface::PlanningContextPtr SBPLPlannerManager::getPlanningContext(
     }
 
     sbpl_context->setPlanningScene(diff_scene);
-    sbpl_context->setMotionPlanRequest(req);
+
+    if (!req.goal_constraints.empty() &&
+        !req.goal_constraints.front().position_constraints.empty())
+    {
+        ros::NodeHandle nh(m_ns);
+        double target_point_offset_x;
+        double target_point_offset_y;
+        double target_point_offset_z;
+        nh.param("target_point_offset_x", target_point_offset_x, 0.0);
+        nh.param("target_point_offset_y", target_point_offset_y, 0.0);
+        nh.param("target_point_offset_z", target_point_offset_z, 0.0);
+
+        planning_interface::MotionPlanRequest adjusted_req = req;
+        adjusted_req.goal_constraints.front().position_constraints.front()
+                .target_point_offset.x = target_point_offset_x;
+        adjusted_req.goal_constraints.front().position_constraints.front()
+                .target_point_offset.y = target_point_offset_y;
+        adjusted_req.goal_constraints.front().position_constraints.front()
+                .target_point_offset.z = target_point_offset_z;
+        sbpl_context->setMotionPlanRequest(adjusted_req);
+    }
+    else {
+        sbpl_context->setMotionPlanRequest(req);
+    }
 
     context.reset(sbpl_context);
     return context;
