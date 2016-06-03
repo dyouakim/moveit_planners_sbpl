@@ -20,9 +20,18 @@ MoveGroupCommandPanel::MoveGroupCommandPanel(QWidget* parent) :
     m_arm_commands_group(nullptr),
     m_marker_pub(),
     m_var_cmd_widget(nullptr),
-    m_rot_tol_spinbox(nullptr),
+    m_planner_name_combo_box(nullptr),
+    m_planner_id_combo_box(nullptr),
     m_joint_tol_spinbox(nullptr),
-    m_pos_tol_spinbox(nullptr)
+    m_pos_tol_spinbox(nullptr),
+    m_rot_tol_spinbox(nullptr),
+    m_workspace_frame_combo_box(nullptr),
+    m_workspace_min_x_spinbox(nullptr),
+    m_workspace_min_y_spinbox(nullptr),
+    m_workspace_min_z_spinbox(nullptr),
+    m_workspace_max_x_spinbox(nullptr),
+    m_workspace_max_y_spinbox(nullptr),
+    m_workspace_max_z_spinbox(nullptr)
 {
     setupGUI();
 
@@ -31,6 +40,10 @@ MoveGroupCommandPanel::MoveGroupCommandPanel(QWidget* parent) :
             this, SLOT(updateRobot()));
     connect(m_model.get(), SIGNAL(robotStateChanged()),
             this, SLOT(syncRobot()));
+    connect(m_model.get(), SIGNAL(configChanged()),
+            this, SLOT(syncModelConfig()));
+    connect(m_model.get(), SIGNAL(availableFramesUpdated()),
+            this, SLOT(updateTransforms()));
 
     m_marker_pub = m_nh.advertise<visualization_msgs::MarkerArray>(
             "visualization_markers", 5);
@@ -43,30 +56,15 @@ MoveGroupCommandPanel::~MoveGroupCommandPanel()
 void MoveGroupCommandPanel::load(const rviz::Config& config)
 {
     rviz::Panel::load(config);
-
     ROS_INFO("Loading config for '%s'", this->getName().toStdString().c_str());
-
-    QString robot_description;
-    config.mapGetString("robot_description", &robot_description);
-
-    ROS_INFO("Robot Description: %s", robot_description.toStdString().c_str());
-
-    if (m_model->loadRobot(robot_description.toStdString())) {
-        m_robot_description_line_edit->setText(robot_description);
-    }
+    m_model->load(config);
 }
 
 void MoveGroupCommandPanel::save(rviz::Config config) const
 {
     rviz::Panel::save(config);
-
     ROS_INFO("Saving config for '%s'", this->getName().toStdString().c_str());
-
-    config.mapSetValue(
-            "robot_description",
-            QString::fromStdString(m_model->robotDescription()));
-
-    // TODO: save the state of the MoveGroupCommandModel
+    m_model->save(config);
 }
 
 void MoveGroupCommandPanel::loadRobot()
@@ -93,23 +91,80 @@ void MoveGroupCommandPanel::loadRobot()
 
 void MoveGroupCommandPanel::updateRobot()
 {
-    setupRobotGUI();
+    const std::string& robot_description = m_model->robotDescription();
+    if (m_robot_description_line_edit->text().toStdString() !=
+        robot_description)
+    {
+        m_robot_description_line_edit->setText(
+                QString::fromStdString(robot_description));
+    }
+
+    setupRobotGUI(
+            mainLayout(),
+            qobject_cast<QGridLayout*>(m_goal_constraints_group->layout()));
     syncRobot();
+}
+
+void MoveGroupCommandPanel::updateTransforms()
+{
+    QString workspace_frame = m_workspace_frame_combo_box->currentText();
+
+    m_workspace_frame_combo_box->clear();
+    for (const std::string& frame : m_model->availableFrames()) {
+        m_workspace_frame_combo_box->addItem(QString::fromStdString(frame));
+    }
+
+    if (workspace_frame.isEmpty() && m_workspace_frame_combo_box->count() > 0) {
+        // select the first item
+        m_workspace_frame_combo_box->setCurrentIndex(0);
+    }
+    else {
+        // select the previously selected item
+        for (int i = 0; i < m_workspace_frame_combo_box->count(); ++i) {
+            const std::string text =
+                    m_workspace_frame_combo_box->itemText(i).toStdString();
+            if (text == workspace_frame.toStdString()) {
+                m_workspace_frame_combo_box->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
 }
 
 void MoveGroupCommandPanel::syncRobot()
 {
     syncSpinBoxes();
     updateRobotVisualization();
+    Q_EMIT configChanged();
+}
+
+void MoveGroupCommandPanel::syncModelConfig()
+{
+    syncPlannerNameComboBox();
+    syncPlannerIdComboBox();
+    syncNumPlanningAttemptsSpinBox();
+    syncAllowedPlanningTimeSpinBox();
+    syncPlanningJointGroupComboBox();
+    syncGoalPositionToleranceSpinBox();
+    syncGoalOrientationToleranceSpinBox();
+    syncGoalJointToleranceSpinBox();
+    syncWorkspaceWidgets();
+    Q_EMIT configChanged();
 }
 
 void MoveGroupCommandPanel::setupGUI()
 {
     ROS_INFO("Setting up the baseline GUI");
 
+    QVBoxLayout* parent_layout = new QVBoxLayout;
+    QScrollArea* scroll_area = new QScrollArea;
+    QWidget* scroll_area_widget = new QWidget;
     QVBoxLayout* main_layout = new QVBoxLayout;
 
-    // general settings
+    ////////////////////////////
+    // General Settings Group //
+    ////////////////////////////
+
     QGroupBox* general_settings_group = new QGroupBox(tr("General Settings"));
     QVBoxLayout* general_settings_layout = new QVBoxLayout;
     QLabel* robot_description_label = new QLabel(tr("Robot Description:"));
@@ -124,52 +179,50 @@ void MoveGroupCommandPanel::setupGUI()
     general_settings_layout->addLayout(robot_description_layout);
     general_settings_group->setLayout(general_settings_layout);
 
-    main_layout->addWidget(general_settings_group);
-    setLayout(main_layout);
+    ////////////////////////////
+    // Planner Settings Group //
+    ////////////////////////////
 
-    connect(m_load_robot_button, SIGNAL(clicked()), this, SLOT(loadRobot()));
-
-    if (m_model->isRobotLoaded()) {
-        setupRobotGUI();
-    }
-
-    // Planner Settings
     QGroupBox* planner_settings_group = new QGroupBox(tr("Planner Settings"));
     QGridLayout* planner_settings_layout = new QGridLayout;
 
     QLabel* planner_name_label = new QLabel(tr("Name:"));
     QLabel* planner_id_label = new QLabel(tr("ID:"));
 
-    QComboBox* planner_name_combobox = new QComboBox;
-    QComboBox* planner_id_combobox = new QComboBox;
-    for (const auto& planner_interface : m_model->plannerInterfaces()) {
+    m_planner_name_combo_box = new QComboBox;
+    m_planner_id_combo_box = new QComboBox;
+
+    // add all planner names as items in the combo box
+    const auto& planner_interfaces = m_model->plannerInterfaces();
+    for (const auto& planner_interface : planner_interfaces) {
         const std::string& planner_name = planner_interface.name;
-        planner_name_combobox->addItem(QString::fromStdString(planner_name));
-        for (const auto& planner_id : planner_interface.planner_ids) {
-            planner_id_combobox->addItem(QString::fromStdString(planner_id));
+        m_planner_name_combo_box->addItem(QString::fromStdString(planner_name));
+    }
+
+    // add all planner ids part of the current planner as items in the combo box
+    const std::string planner_name = m_model->plannerName();
+    if (planner_name != "UNKNOWN") {
+        size_t pidx;
+        for (pidx = 0; pidx < planner_interfaces.size(); ++pidx) {
+            if (planner_interfaces[pidx].name == planner_name) {
+                break;
+            }
+        }
+
+        for (const auto& planner_id : planner_interfaces[pidx].planner_ids) {
+            m_planner_id_combo_box->addItem(QString::fromStdString(planner_id));
         }
     }
 
-    for (int i = 0; i < planner_name_combobox->count(); ++i) {
-        if (planner_name_combobox->itemText(i).toStdString() == m_model->plannerName()) {
-            planner_name_combobox->setCurrentIndex(i);
-            break;
-        }
-    }
-
-    for (int i = 0; i < planner_id_combobox->count(); ++i) {
-        if (planner_id_combobox->itemText(i).toStdString() == m_model->plannerID()) {
-            planner_id_combobox->setCurrentIndex(i);
-            break;
-        }
-    }
+    syncPlannerNameComboBox();
+    syncPlannerIdComboBox();
 
     QLabel* num_attempts_label = new QLabel(tr("Num Attempts"));
     m_num_planning_attempts_spinbox = new QSpinBox;
     m_num_planning_attempts_spinbox->setMinimum(1);
     m_num_planning_attempts_spinbox->setMaximum(100);
     m_num_planning_attempts_spinbox->setWrapping(false);
-    m_num_planning_attempts_spinbox->setValue(m_model->numPlanningAttempts());
+    syncNumPlanningAttemptsSpinBox();
 
     QLabel* allowed_planning_time_label = new QLabel(tr("Allowed Time (s)"));
     m_allowed_planning_time_spinbox = new QDoubleSpinBox;
@@ -177,31 +230,24 @@ void MoveGroupCommandPanel::setupGUI()
     m_allowed_planning_time_spinbox->setMaximum(120.0);
     m_allowed_planning_time_spinbox->setSingleStep(1.0);
     m_allowed_planning_time_spinbox->setWrapping(false);
-    m_allowed_planning_time_spinbox->setValue(m_model->allowedPlanningTime());
+    syncAllowedPlanningTimeSpinBox();
 
     planner_settings_layout->addWidget(planner_name_label,              0, 0);
-    planner_settings_layout->addWidget(planner_name_combobox,           0, 1);
+    planner_settings_layout->addWidget(m_planner_name_combo_box,        0, 1);
     planner_settings_layout->addWidget(planner_id_label,                1, 0);
-    planner_settings_layout->addWidget(planner_id_combobox,             1, 1);
+    planner_settings_layout->addWidget(m_planner_id_combo_box,          1, 1);
     planner_settings_layout->addWidget(num_attempts_label,              2, 0);
     planner_settings_layout->addWidget(m_num_planning_attempts_spinbox, 2, 1);
     planner_settings_layout->addWidget(allowed_planning_time_label,     3, 0);
     planner_settings_layout->addWidget(m_allowed_planning_time_spinbox, 3, 1);
 
-    connect(planner_name_combobox, SIGNAL(currentIndexChanged(const QString&)),
-            this, SLOT(setCurrentPlanner(const QString&)));
-    connect(planner_id_combobox, SIGNAL(currentIndexChanged(const QString&)),
-            this, SLOT(setCurrentPlannerID(const QString&)));
-    connect(m_num_planning_attempts_spinbox, SIGNAL(valueChanged(int)),
-            m_model.get(), SLOT(setNumPlanningAttempts(int)));
-    connect(m_allowed_planning_time_spinbox, SIGNAL(valueChanged(double)),
-            m_model.get(), SLOT(setAllowedPlanningTime(double)));
-
     planner_settings_group->setLayout(planner_settings_layout);
-    main_layout->addWidget(planner_settings_group);
 
-    // Goal Constraints
-    QGroupBox* goal_constraints_group = new QGroupBox(tr("Goal Constraints"));
+    ////////////////////////////
+    // Goal Constraints Group //
+    ////////////////////////////
+
+    m_goal_constraints_group = new QGroupBox(tr("Goal Constraints"));
     QGridLayout* goal_constraints_layout = new QGridLayout;
 
     QLabel* joint_tol_label = new QLabel(tr("Joint Tolerance (deg):"));
@@ -211,7 +257,7 @@ void MoveGroupCommandPanel::setupGUI()
     m_joint_tol_spinbox->setMaximum( 180.0);
     m_joint_tol_spinbox->setSingleStep(1.0);
     m_joint_tol_spinbox->setWrapping(false);
-    m_joint_tol_spinbox->setValue(m_model->goalJointTolerance());
+    syncGoalJointToleranceSpinBox();
 
     QLabel* pos_tol_label = new QLabel(tr("Position Tolerance (m):"));
 
@@ -220,7 +266,7 @@ void MoveGroupCommandPanel::setupGUI()
     m_pos_tol_spinbox->setMaximum( 1.0);
     m_pos_tol_spinbox->setSingleStep(0.01);
     m_pos_tol_spinbox->setWrapping(false);
-    m_pos_tol_spinbox->setValue(m_model->goalPositionTolerance());
+    syncGoalPositionToleranceSpinBox();
 
     QLabel* rot_tol_label = new QLabel(tr("Orientation Tolerance (deg):"));
 
@@ -229,7 +275,66 @@ void MoveGroupCommandPanel::setupGUI()
     m_rot_tol_spinbox->setMaximum(180.0);
     m_rot_tol_spinbox->setSingleStep(1.0);
     m_rot_tol_spinbox->setWrapping(false);
-    m_rot_tol_spinbox->setValue(m_model->goalOrientationTolerance());
+    syncGoalOrientationToleranceSpinBox();
+
+    QGroupBox* workspace_group = new QGroupBox(tr("Workspace Parameters"));
+    QGridLayout* workspace_layout = new QGridLayout;
+
+    m_workspace_frame_combo_box = new QComboBox;
+    for (const std::string& frame : m_model->availableFrames()) {
+        m_workspace_frame_combo_box->addItem(QString::fromStdString(frame));
+    }
+
+    m_workspace_min_x_spinbox = new QDoubleSpinBox;
+    m_workspace_min_x_spinbox->setMinimum(-5.0);
+    m_workspace_min_x_spinbox->setMaximum(5.0);
+    m_workspace_min_x_spinbox->setSingleStep(0.01);
+    m_workspace_min_x_spinbox->setWrapping(false);
+
+    m_workspace_min_y_spinbox = new QDoubleSpinBox;
+    m_workspace_min_y_spinbox->setMinimum(-5.0);
+    m_workspace_min_y_spinbox->setMaximum(5.0);
+    m_workspace_min_y_spinbox->setSingleStep(0.01);
+    m_workspace_min_y_spinbox->setWrapping(false);
+
+    m_workspace_min_z_spinbox = new QDoubleSpinBox;
+    m_workspace_min_z_spinbox->setMinimum(-5.0);
+    m_workspace_min_z_spinbox->setMaximum(5.0);
+    m_workspace_min_z_spinbox->setSingleStep(0.01);
+    m_workspace_min_z_spinbox->setWrapping(false);
+
+    m_workspace_max_x_spinbox = new QDoubleSpinBox;
+    m_workspace_max_x_spinbox->setMinimum(-5.0);
+    m_workspace_max_x_spinbox->setMaximum(5.0);
+    m_workspace_max_x_spinbox->setSingleStep(0.01);
+    m_workspace_max_x_spinbox->setWrapping(false);
+
+    m_workspace_max_y_spinbox = new QDoubleSpinBox;
+    m_workspace_max_y_spinbox->setMinimum(-5.0);
+    m_workspace_max_y_spinbox->setMaximum(5.0);
+    m_workspace_max_y_spinbox->setSingleStep(0.01);
+    m_workspace_max_y_spinbox->setWrapping(false);
+
+    m_workspace_max_z_spinbox = new QDoubleSpinBox;
+    m_workspace_max_z_spinbox->setMinimum(-5.0);
+    m_workspace_max_z_spinbox->setMaximum(5.0);
+    m_workspace_max_z_spinbox->setSingleStep(0.01);
+    m_workspace_max_z_spinbox->setWrapping(false);
+
+    syncWorkspaceWidgets();
+
+    workspace_layout->addWidget(new QLabel(tr("Frame:")),       0, 0);
+    workspace_layout->addWidget(m_workspace_frame_combo_box,    0, 1, 1, 3);
+    workspace_layout->addWidget(new QLabel(tr("Min Corner:")),  1, 0);
+    workspace_layout->addWidget(m_workspace_min_x_spinbox,      1, 1);
+    workspace_layout->addWidget(m_workspace_min_y_spinbox,      1, 2);
+    workspace_layout->addWidget(m_workspace_min_z_spinbox,      1, 3);
+    workspace_layout->addWidget(new QLabel(tr("Max Corner:")),  2, 0);
+    workspace_layout->addWidget(m_workspace_max_x_spinbox,      2, 1);
+    workspace_layout->addWidget(m_workspace_max_y_spinbox,      2, 2);
+    workspace_layout->addWidget(m_workspace_max_z_spinbox,      2, 3);
+
+    workspace_group->setLayout(workspace_layout);
 
     goal_constraints_layout->addWidget(pos_tol_label,       0, 0);
     goal_constraints_layout->addWidget(m_pos_tol_spinbox,   0, 1);
@@ -237,6 +342,60 @@ void MoveGroupCommandPanel::setupGUI()
     goal_constraints_layout->addWidget(m_rot_tol_spinbox,   1, 1);
     goal_constraints_layout->addWidget(joint_tol_label,     2, 0);
     goal_constraints_layout->addWidget(m_joint_tol_spinbox, 2, 1);
+    goal_constraints_layout->addWidget(workspace_group,     3, 0, 1, 2);
+
+    m_goal_constraints_group->setLayout(goal_constraints_layout);
+
+    if (m_model->isRobotLoaded()) {
+        setupRobotGUI(main_layout, goal_constraints_layout);
+    }
+
+    ////////////////////
+    // Commands Group //
+    ////////////////////
+
+    QGroupBox* commands_group_box = new QGroupBox(tr("Commands"));
+    QVBoxLayout* commands_group_layout = new QVBoxLayout;
+
+    m_plan_to_position_button = new QPushButton(tr("Plan to Position"));
+    m_move_to_position_button = new QPushButton(tr("Move to Position"));
+    m_copy_current_state_button = new QPushButton(tr("Copy Current State"));
+
+    commands_group_layout->addWidget(m_plan_to_position_button);
+    commands_group_layout->addWidget(m_move_to_position_button);
+    commands_group_layout->addWidget(m_copy_current_state_button);
+
+    commands_group_box->setLayout(commands_group_layout);
+
+    /////////////////////////
+    // Put it all together //
+    /////////////////////////
+
+    main_layout->addWidget(general_settings_group);
+    main_layout->addWidget(planner_settings_group);
+    main_layout->addWidget(m_goal_constraints_group);
+    main_layout->insertWidget(main_layout->count(), commands_group_box);
+    scroll_area_widget->setLayout(main_layout);
+    scroll_area->setWidget(scroll_area_widget);
+    scroll_area->setWidgetResizable(true);
+    parent_layout->addWidget(scroll_area);
+
+    setLayout(parent_layout);
+
+    /////////////////////
+    // Connect Signals //
+    /////////////////////
+
+    connect(m_load_robot_button, SIGNAL(clicked()), this, SLOT(loadRobot()));
+
+    connect(m_planner_name_combo_box, SIGNAL(currentIndexChanged(const QString&)),
+            this, SLOT(setCurrentPlanner(const QString&)));
+    connect(m_planner_id_combo_box, SIGNAL(currentIndexChanged(const QString&)),
+            this, SLOT(setCurrentPlannerID(const QString&)));
+    connect(m_num_planning_attempts_spinbox, SIGNAL(valueChanged(int)),
+            m_model.get(), SLOT(setNumPlanningAttempts(int)));
+    connect(m_allowed_planning_time_spinbox, SIGNAL(valueChanged(double)),
+            m_model.get(), SLOT(setAllowedPlanningTime(double)));
 
     connect(m_joint_tol_spinbox, SIGNAL(valueChanged(double)),
             this, SLOT(setGoalJointTolerance(double)));
@@ -247,21 +406,44 @@ void MoveGroupCommandPanel::setupGUI()
     connect(m_rot_tol_spinbox, SIGNAL(valueChanged(double)),
             this, SLOT(setGoalOrientationTolerance(double)));
 
-    goal_constraints_group->setLayout(goal_constraints_layout);
-    main_layout->addWidget(goal_constraints_group);
+    connect(m_workspace_frame_combo_box, SIGNAL(currentIndexChanged(const QString&)),
+            this, SLOT(setWorkspaceFrame(const QString&)));
+    connect(m_workspace_min_x_spinbox, SIGNAL(valueChanged(double)),
+            this, SLOT(setWorkspaceMinX(double)));
+    connect(m_workspace_min_y_spinbox, SIGNAL(valueChanged(double)),
+            this, SLOT(setWorkspaceMinY(double)));
+    connect(m_workspace_min_z_spinbox, SIGNAL(valueChanged(double)),
+            this, SLOT(setWorkspaceMinZ(double)));
+    connect(m_workspace_max_x_spinbox, SIGNAL(valueChanged(double)),
+            this, SLOT(setWorkspaceMaxX(double)));
+    connect(m_workspace_max_y_spinbox, SIGNAL(valueChanged(double)),
+            this, SLOT(setWorkspaceMaxY(double)));
+    connect(m_workspace_max_z_spinbox, SIGNAL(valueChanged(double)),
+            this, SLOT(setWorkspaceMaxZ(double)));
 
-//    main_layout->addStretch();
+    connect(m_plan_to_position_button, SIGNAL(clicked()),
+            this, SLOT(planToGoalPose()));
+    connect(m_move_to_position_button, SIGNAL(clicked()),
+            this, SLOT(moveToGoalPose()));
+    connect(m_copy_current_state_button, SIGNAL(clicked()),
+            this, SLOT(copyCurrentState()));
 }
 
-void MoveGroupCommandPanel::setupRobotGUI()
+void MoveGroupCommandPanel::setupRobotGUI(
+    QVBoxLayout* main_layout,
+    QGridLayout* goal_constraints_layout)
 {
     ROS_INFO("Setting up the Robot GUI");
 
-    moveit::core::RobotModelConstPtr robot_model = m_model->robotModel();
+    /////////////////////////////////////////////
+    // Robot-Specific Goal Constraint Controls //
+    /////////////////////////////////////////////
 
-    // add all joint groups as items in a combobox
+    // set up combobox for selecting the active planning joint group
     m_joint_groups_combo_box = new QComboBox;
-    // set up combobox for choosing joint group to modify
+
+    // add all joint groups as items in the combobox
+    moveit::core::RobotModelConstPtr robot_model = m_model->robotModel();
     for (size_t jgind = 0;
         jgind < robot_model->getJointModelGroupNames().size();
         ++jgind)
@@ -271,51 +453,27 @@ void MoveGroupCommandPanel::setupRobotGUI()
         m_joint_groups_combo_box->addItem(QString::fromStdString(jg_name));
     }
 
-    // NOTE: the first item added to the combobox will become the value of the
-    // combobox
+    syncPlanningJointGroupComboBox();
+
+    m_var_cmd_widget = setupJointVariableCommandWidget();
+
+    updateJointVariableCommandWidget(
+        m_joint_groups_combo_box->currentText().toStdString());
+
+    int base_row_count = goal_constraints_layout->rowCount();
+    goal_constraints_layout->addWidget(new QLabel(tr("Joint Group:")), base_row_count, 0);
+    goal_constraints_layout->addWidget(m_joint_groups_combo_box, base_row_count, 1);
+    base_row_count = goal_constraints_layout->rowCount();
+    goal_constraints_layout->addWidget(m_var_cmd_widget, base_row_count, 0, 1, 2);
 
     connect(m_joint_groups_combo_box,
             SIGNAL(currentIndexChanged(const QString&)),
             this,
             SLOT(setJointGroup(const QString&)));
-
-    m_var_cmd_widget = setupJointVariableCommandWidget();
     for (QDoubleSpinBox* spinbox : m_var_cmd_widget->spinboxes()) {
         connect(spinbox, SIGNAL(valueChanged(double)),
                 this, SLOT(setJointVariableFromSpinBox(double)));
     }
-
-    updateJointVariableCommandWidget(
-        m_joint_groups_combo_box->currentText().toStdString());
-
-    m_plan_to_position_button = new QPushButton(tr("Plan to Position"));
-    connect(m_plan_to_position_button, SIGNAL(clicked()),
-            this, SLOT(planToGoalPose()));
-
-    m_move_to_position_button = new QPushButton(tr("Move to Position"));
-    connect(m_move_to_position_button, SIGNAL(clicked()),
-            this, SLOT(moveToGoalPose()));
-
-    m_copy_current_state_button = new QPushButton(tr("Copy Current State"));
-    connect(m_copy_current_state_button, SIGNAL(clicked()),
-            this, SLOT(copyCurrentState()));
-
-    QVBoxLayout* vlayout = qobject_cast<QVBoxLayout*>(layout());
-
-    // Commands
-    QGroupBox* commands_group_box = new QGroupBox(tr("Commands"));
-    QVBoxLayout* commands_group_layout = new QVBoxLayout;
-
-    commands_group_layout->addWidget(m_plan_to_position_button);
-    commands_group_layout->addWidget(m_move_to_position_button);
-    commands_group_layout->addWidget(m_copy_current_state_button);
-
-    commands_group_box->setLayout(commands_group_layout);
-
-    vlayout->insertWidget(vlayout->count(), m_joint_groups_combo_box);
-    vlayout->insertWidget(vlayout->count(), m_var_cmd_widget);
-    vlayout->insertWidget(vlayout->count(), commands_group_box);
-    vlayout->addStretch();
 }
 
 JointVariableCommandWidget*
@@ -328,6 +486,63 @@ void MoveGroupCommandPanel::updateJointVariableCommandWidget(
     const std::string& joint_group_name)
 {
     m_var_cmd_widget->displayJointGroupCommands(joint_group_name);
+}
+
+void MoveGroupCommandPanel::syncPlannerNameComboBox()
+{
+    assert(m_model && m_planner_name_combo_box);
+    // set the selected item to match the current planner
+    const std::string planner_name = m_model->plannerName();
+    for (int i = 0; i < m_planner_name_combo_box->count(); ++i) {
+        if (m_planner_name_combo_box->itemText(i).toStdString() ==
+                planner_name)
+        {
+            m_planner_name_combo_box->setCurrentIndex(i);
+            break;
+        }
+    }
+}
+
+void MoveGroupCommandPanel::syncPlannerIdComboBox()
+{
+    assert(m_model && m_planner_id_combo_box);
+    // set the selected item to match the current planner id
+    const std::string planner_id = m_model->plannerID();
+    for (int i = 0; i < m_planner_id_combo_box->count(); ++i) {
+        if (m_planner_id_combo_box->itemText(i).toStdString() == planner_id) {
+            m_planner_id_combo_box->setCurrentIndex(i);
+            break;
+        }
+    }
+}
+
+void MoveGroupCommandPanel::syncNumPlanningAttemptsSpinBox()
+{
+    assert(m_model && m_num_planning_attempts_spinbox);
+    m_num_planning_attempts_spinbox->setValue(m_model->numPlanningAttempts());
+}
+
+void MoveGroupCommandPanel::syncAllowedPlanningTimeSpinBox()
+{
+    assert(m_model && m_allowed_planning_time_spinbox);
+    m_allowed_planning_time_spinbox->setValue(m_model->allowedPlanningTime());
+}
+
+void MoveGroupCommandPanel::syncPlanningJointGroupComboBox()
+{
+    assert(m_model && m_joint_groups_combo_box);
+    moveit::core::RobotModelConstPtr robot_model = m_model->robotModel();
+    if (!robot_model) {
+        // TODO: set to empty selection?
+        return;
+    }
+
+    // set the selected item to match the active planning joint group
+    if (!robot_model->getJointModelGroups().empty()) {
+        const int ajg_idx = m_joint_groups_combo_box->findText(
+                QString::fromStdString(m_model->planningJointGroupName()));
+        m_joint_groups_combo_box->setCurrentIndex(ajg_idx);
+    }
 }
 
 void MoveGroupCommandPanel::syncSpinBoxes()
@@ -364,6 +579,53 @@ void MoveGroupCommandPanel::syncSpinBoxes()
             }
         }
     }
+}
+
+void MoveGroupCommandPanel::syncGoalPositionToleranceSpinBox()
+{
+    assert(m_model && m_pos_tol_spinbox);
+    m_pos_tol_spinbox->setValue(m_model->goalPositionTolerance());
+}
+
+void MoveGroupCommandPanel::syncGoalOrientationToleranceSpinBox()
+{
+    assert(m_model && m_rot_tol_spinbox);
+    m_rot_tol_spinbox->setValue(m_model->goalOrientationTolerance());
+}
+
+void MoveGroupCommandPanel::syncGoalJointToleranceSpinBox()
+{
+    assert(m_model && m_joint_tol_spinbox);
+    m_joint_tol_spinbox->setValue(m_model->goalJointTolerance());
+}
+
+void MoveGroupCommandPanel::syncWorkspaceWidgets()
+{
+    assert(m_model &&
+            m_workspace_min_x_spinbox && m_workspace_max_x_spinbox &&
+            m_workspace_min_y_spinbox && m_workspace_max_y_spinbox &&
+            m_workspace_min_z_spinbox && m_workspace_max_z_spinbox);
+    bool found = false;
+    for (int i = 0; i < m_workspace_frame_combo_box->count(); ++i) {
+        if (m_workspace_frame_combo_box->itemText(i).toStdString() ==
+                m_model->workspace().header.frame_id)
+        {
+            m_workspace_frame_combo_box->setCurrentIndex(i);
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        m_workspace_frame_combo_box->setCurrentIndex(-1);
+    }
+    m_workspace_min_x_spinbox->setValue(m_model->workspace().min_corner.x);
+    m_workspace_min_y_spinbox->setValue(m_model->workspace().min_corner.y);
+    m_workspace_min_z_spinbox->setValue(m_model->workspace().min_corner.z);
+    m_workspace_max_x_spinbox->setValue(m_model->workspace().max_corner.x);
+    m_workspace_max_y_spinbox->setValue(m_model->workspace().max_corner.y);
+    m_workspace_max_z_spinbox->setValue(m_model->workspace().max_corner.z);
+
+    m_marker_pub.publish(getWorkspaceVisualization());
 }
 
 void MoveGroupCommandPanel::updateRobotVisualization()
@@ -441,6 +703,7 @@ void MoveGroupCommandPanel::setJointVariableFromSpinBox(double value)
 void MoveGroupCommandPanel::setJointGroup(const QString& joint_group_name)
 {
     updateJointVariableCommandWidget(joint_group_name.toStdString());
+    m_model->setPlanningJointGroup(joint_group_name.toStdString());
 }
 
 void MoveGroupCommandPanel::planToGoalPose()
@@ -491,6 +754,55 @@ void MoveGroupCommandPanel::setCurrentPlannerID(const QString& id)
     m_model->setPlannerID(id.toStdString());
 }
 
+void MoveGroupCommandPanel::setWorkspaceFrame(const QString& frame)
+{
+    moveit_msgs::WorkspaceParameters params = m_model->workspace();
+    params.header.frame_id = frame.toStdString();
+    m_model->setWorkspace(params);
+}
+
+void MoveGroupCommandPanel::setWorkspaceMinX(double value)
+{
+    moveit_msgs::WorkspaceParameters params = m_model->workspace();
+    params.min_corner.x = value;
+    m_model->setWorkspace(params);
+}
+
+void MoveGroupCommandPanel::setWorkspaceMinY(double value)
+{
+    moveit_msgs::WorkspaceParameters params = m_model->workspace();
+    params.min_corner.y = value;
+    m_model->setWorkspace(params);
+}
+
+void MoveGroupCommandPanel::setWorkspaceMinZ(double value)
+{
+    moveit_msgs::WorkspaceParameters params = m_model->workspace();
+    params.min_corner.z = value;
+    m_model->setWorkspace(params);
+}
+
+void MoveGroupCommandPanel::setWorkspaceMaxX(double value)
+{
+    moveit_msgs::WorkspaceParameters params = m_model->workspace();
+    params.max_corner.x = value;
+    m_model->setWorkspace(params);
+}
+
+void MoveGroupCommandPanel::setWorkspaceMaxY(double value)
+{
+    moveit_msgs::WorkspaceParameters params = m_model->workspace();
+    params.max_corner.y = value;
+    m_model->setWorkspace(params);
+}
+
+void MoveGroupCommandPanel::setWorkspaceMaxZ(double value)
+{
+    moveit_msgs::WorkspaceParameters params = m_model->workspace();
+    params.max_corner.z = value;
+    m_model->setWorkspace(params);
+}
+
 bool MoveGroupCommandPanel::isVariableAngle(int vind) const
 {
     auto robot_model = m_model->robotModel();
@@ -514,6 +826,65 @@ bool MoveGroupCommandPanel::isVariableAngle(int vind) const
             jm->getType() == moveit::core::JointModel::FLOATING &&
             !var_bounds.position_bounded_
         ));
+}
+
+visualization_msgs::MarkerArray
+MoveGroupCommandPanel::getWorkspaceVisualization() const
+{
+    // shamefully copypasta'd from sbpl_manipulation and leatherman
+
+    visualization_msgs::MarkerArray ma;
+
+    const auto& workspace = m_model->workspace();
+
+    visualization_msgs::Marker marker;
+
+    marker.header.stamp = ros::Time::now();
+    marker.header.frame_id = workspace.header.frame_id;
+    marker.ns = "workspace";
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::LINE_STRIP;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = 0.0;
+    marker.pose.position.y = 0.0;
+    marker.pose.position.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.05;
+    marker.color.r = 1.0f;
+    marker.color.g = 0.0f;
+    marker.color.b = 0.0f;
+    marker.color.a = 1.0f;
+    marker.lifetime = ros::Duration(0);
+
+    std::vector<geometry_msgs::Point> pts(10);
+    const double origin_x = workspace.min_corner.x;
+    const double origin_y = workspace.min_corner.y;
+    const double origin_z = workspace.min_corner.z;
+    const double dim_x = workspace.max_corner.x - workspace.min_corner.x;
+    const double dim_y = workspace.max_corner.y - workspace.min_corner.y;
+    const double dim_z = workspace.max_corner.z - workspace.min_corner.z;
+    pts[0].x = origin_x;        pts[0].y = origin_y;        pts[0].z = origin_z;
+    pts[1].x = origin_x+dim_x;  pts[1].y = origin_y;        pts[1].z = origin_z;
+    pts[2].x = origin_x+dim_x;  pts[2].y = origin_y+dim_y;  pts[2].z = origin_z;
+    pts[3].x = origin_x;        pts[3].y = origin_y+dim_y;  pts[3].z = origin_z;
+    pts[4].x = origin_x;        pts[4].y = origin_y;        pts[4].z = origin_z;
+    pts[5].x = origin_x;        pts[5].y = origin_y;        pts[5].z = origin_z+dim_z;
+    pts[6].x = origin_x+dim_x;  pts[6].y = origin_y;        pts[6].z = origin_z+dim_z;
+    pts[7].x = origin_x+dim_x;  pts[7].y = origin_y+dim_y;  pts[7].z = origin_z+dim_z;
+    pts[8].x = origin_x;        pts[8].y = origin_y+dim_y;  pts[8].z = origin_z+dim_z;
+    pts[9].x = origin_x;        pts[9].y = origin_y;        pts[9].z = origin_z+dim_z;
+    marker.points = std::move(pts);
+
+    ma.markers.push_back(std::move(marker));
+    return ma;
+}
+
+QVBoxLayout* MoveGroupCommandPanel::mainLayout()
+{
+    QVBoxLayout* parent_layout = qobject_cast<QVBoxLayout*>(layout());
+    QScrollArea* scroll_area = qobject_cast<QScrollArea*>(parent_layout->itemAt(0)->widget());
+    QVBoxLayout* main_layout = qobject_cast<QVBoxLayout*>(scroll_area->widget()->layout());
+    return main_layout;
 }
 
 } // namespace sbpl_interface
