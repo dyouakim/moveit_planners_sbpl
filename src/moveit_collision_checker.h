@@ -38,7 +38,7 @@
 #include <moveit/robot_model/robot_model.h>
 #include <moveit/robot_state/robot_state.h>
 #include <ros/ros.h>
-#include <sbpl_manipulation_components/collision_checker.h>
+#include <sbpl_arm_planner/collision_checker.h>
 
 namespace sbpl_interface {
 
@@ -76,7 +76,6 @@ public:
     bool interpolatePath(
         const std::vector<double>& start,
         const std::vector<double>& end,
-        const std::vector<double>& inc,
         std::vector<std::vector<double>>& path);
 
     visualization_msgs::MarkerArray getCollisionModelVisualization(

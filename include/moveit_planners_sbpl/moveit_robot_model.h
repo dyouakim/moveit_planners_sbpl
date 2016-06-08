@@ -34,11 +34,12 @@
 #ifndef sbpl_interface_MoveItRobotModel_h
 #define sbpl_interface_MoveItRobotModel_h
 
+#include <kdl/frames.hpp>
 #include <moveit/robot_model/robot_model.h>
 #include <moveit/robot_state/robot_state.h>
 #include <moveit/planning_scene/planning_scene.h>
-#include <sbpl_manipulation_components/robot_model.h>
-#include <sbpl_manipulation_components_pr2/orientation_solver.h>
+#include <sbpl_arm_planner/robot_model.h>
+#include <sbpl_pr2_robot_model/orientation_solver.h>
 
 namespace sbpl_interface {
 

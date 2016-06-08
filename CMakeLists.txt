@@ -21,8 +21,10 @@ find_package(catkin REQUIRED
     moveit_ros_planning
     roscpp
     rviz
+    sbpl_arm_planner
+    sbpl_collision_checking
     sbpl_geometry_utils
-    sbpl_manipulation
+    sbpl_pr2_robot_model
     sensor_msgs
     pluginlib
     visualization_msgs)
@@ -46,7 +48,9 @@ catkin_package(
         eigen_conversions
         geometric_shapes
         leatherman
-        sbpl_manipulation
+        sbpl_arm_planner
+        sbpl_collision_checking
+        sbpl_pr2_robot_model
         roscpp
     DEPENDS)
 
@@ -80,6 +84,7 @@ add_library(
 
 add_library(
     moveit_sbpl_planner_plugin
+    src/planner_family_manager.cpp
     src/sbpl_planner_manager.cpp
     src/sbpl_planning_context.cpp
     src/moveit_robot_model.cpp
