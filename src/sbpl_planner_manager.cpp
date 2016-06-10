@@ -195,9 +195,25 @@ planning_interface::PlanningContextPtr SBPLPlannerManager::getPlanningContext(
         double target_point_offset_x;
         double target_point_offset_y;
         double target_point_offset_z;
-        nh.param("target_point_offset_x", target_point_offset_x, 0.0);
-        nh.param("target_point_offset_y", target_point_offset_y, 0.0);
-        nh.param("target_point_offset_z", target_point_offset_z, 0.0);
+        std::string tpox_key, tpoy_key, tpoz_key;
+        if (!nh.searchParam("target_point_offset_x", tpox_key)) {
+            target_point_offset_x = 0.0;
+        }
+        else {
+            nh.getParam(tpox_key, target_point_offset_x);
+        }
+        if (!nh.searchParam("target_point_offset_y", tpoy_key)) {
+            target_point_offset_y = 0.0;
+        }
+        else {
+            nh.getParam(tpoy_key, target_point_offset_y);
+        }
+        if (!nh.searchParam("target_point_offset_z", tpoz_key)) {
+            target_point_offset_z = 0.0;
+        }
+        else {
+            nh.getParam(tpoz_key, target_point_offset_z);
+        }
 
         planning_interface::MotionPlanRequest adjusted_req = req;
         adjusted_req.goal_constraints.front().position_constraints.front()
