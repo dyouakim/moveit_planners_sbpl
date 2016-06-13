@@ -13,6 +13,7 @@
 
 // project includes
 #include <moveit_planners_sbpl/collision_world_sbpl.h>
+#include "action_set_ur5.h"
 
 namespace moveit_msgs {
 
@@ -360,7 +361,15 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
 
     const std::string& action_filename = config.at("mprim_filename");
 
-    sbpl::manip::ActionSet* as = new sbpl::manip::ActionSet;
+    sbpl::manip::ActionSet* as = nullptr;
+
+    if (m_robot_model->moveitRobotModel()->getName() == "ur5") {
+        ROS_WARN("Creating UR5-specific action set");
+        as = new sbpl_interface::ActionSetUR5;
+    }
+    else {
+        as = new sbpl::manip::ActionSet;
+    }
 
     if (!as) {
         ROS_ERROR("Failed to instantiate appropriate Action Set");
