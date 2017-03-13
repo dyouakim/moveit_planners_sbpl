@@ -193,6 +193,15 @@ private:
         const robot_state::RobotState& state2,
         const AllowedCollisionMatrix& acm);
 
+    double distanceRobotMutable(
+        const CollisionRobot& robot,
+        const robot_state::RobotState& state);
+
+    double distanceRobotMutable(
+        const CollisionRobot& robot,
+        const robot_state::RobotState& state,
+        const AllowedCollisionMatrix& acm);
+
     void processWorldUpdateUninitialized(const World::ObjectConstPtr& object);
     void processWorldUpdateCreate(const World::ObjectConstPtr& object);
     void processWorldUpdateDestroy(const World::ObjectConstPtr& object);

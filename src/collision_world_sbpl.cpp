@@ -169,9 +169,8 @@ double CollisionWorldSBPL::distanceRobot(
     const CollisionRobot& robot,
     const robot_state::RobotState& state) const
 {
-    // TODO: implement
-    ROS_INFO_NAMED(CWP_LOGGER, "distanceRobot(robot, state)");
-    return -1.0;
+    return const_cast<CollisionWorldSBPL*>(this)->distanceRobotMutable(
+            robot, state);
 }
 
 double CollisionWorldSBPL::distanceRobot(
@@ -179,9 +178,8 @@ double CollisionWorldSBPL::distanceRobot(
     const robot_state::RobotState& state,
     const AllowedCollisionMatrix& acm) const
 {
-    // TODO: implement
-    ROS_INFO_NAMED(CWP_LOGGER, "distanceRobot(robot, state, acm)");
-    return -1.0;
+    return const_cast<CollisionWorldSBPL*>(this)->distanceRobotMutable(
+            robot, state, acm);
 }
 
 double CollisionWorldSBPL::distanceWorld(const CollisionWorld& world) const
@@ -559,6 +557,60 @@ void CollisionWorldSBPL::checkRobotCollisionMutable(
     // TODO: implement
     ROS_ERROR_NAMED(CWP_LOGGER, "checkRobotCollision(req, res, robot, state1, state2, acm)");
     setVacuousCollision(res);
+}
+
+double CollisionWorldSBPL::distanceRobotMutable(
+    const CollisionRobot& robot,
+    const robot_state::RobotState& state)
+{
+    ROS_WARN_ONCE_NAMED(CWP_LOGGER, "distanceRobot(robot, state)");
+    const CollisionRobotSBPL& crobot = (const CollisionRobotSBPL&)robot;
+    const auto& rcm = crobot.robotCollisionModel();
+    if (state.getRobotModel()->getName() != rcm->name()) {
+        ROS_ERROR_NAMED(CWP_LOGGER, "Collision Robot Model does not match Robot Model");
+        return -1.0;
+    }
+
+    auto gm = getCollisionStateUpdater(crobot, *state.getRobotModel());
+    if (!gm) {
+        ROS_ERROR_NAMED(CWP_LOGGER, "Failed to get Group Model for robot '%s'", state.getRobotModel()->getName().c_str());
+        return -1.0;
+    }
+
+    const std::string &all_group_name = "";
+    if (!rcm->hasGroup(all_group_name)) {
+        ROS_ERROR_NAMED(CWP_LOGGER, "No group '%s' found in the Robot Collision Model", all_group_name.c_str());
+        return -1.0;
+    }
+
+    int gidx = rcm->groupIndex(all_group_name);
+
+    gm->update(state);
+
+    sbpl::collision::WorldCollisionModelConstPtr ewcm;
+    if (m_wcm) {
+        ewcm = m_wcm;
+    } else if (m_parent_wcm) {
+        ewcm = m_parent_wcm;
+    } else {
+        ROS_ERROR_NAMED(CWP_LOGGER, "Neither local nor parent world collision model is valid");
+        return -1.0;
+    }
+
+    // TODO: expose underlying distance computations
+//    return ewcm->collisionDistance(
+//            *gm->collisionState(), *gm->attachedBodiesCollisionState(), gidx);
+    return -1.0;
+}
+
+double CollisionWorldSBPL::distanceRobotMutable(
+    const CollisionRobot& robot,
+    const robot_state::RobotState& state,
+    const AllowedCollisionMatrix& acm)
+{
+    // TODO: acm-aware version
+    ROS_WARN_ONCE_NAMED(CWP_LOGGER, "distanceRobot(robot, state, acm)");
+    return distanceRobotMutable(robot, state);
 }
 
 void CollisionWorldSBPL::processWorldUpdateUninitialized(
