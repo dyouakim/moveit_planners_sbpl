@@ -76,6 +76,11 @@ CollisionRobotSBPL::CollisionRobotSBPL(
         throw std::runtime_error(msg);
     }
 
+    sbpl::collision::CollisionGroupConfig all_group;
+    all_group.name = "";
+    all_group.links = model->getLinkModelNames();
+    cm_config.groups.push_back(all_group);
+
     // build robot collision model from configuration
     auto rcm = sbpl::collision::RobotCollisionModel::Load(
             *model->getURDF(), cm_config);
