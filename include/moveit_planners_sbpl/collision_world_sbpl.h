@@ -111,18 +111,18 @@ public:
 
     virtual double distanceRobot(
         const CollisionRobot& robot,
-        const robot_state::RobotState& state) const;
+        const robot_state::RobotState& state, bool verbose = false) const;
 
     virtual double distanceRobot(
         const CollisionRobot& robot,
         const robot_state::RobotState& state,
-        const AllowedCollisionMatrix& acm) const;
+        const AllowedCollisionMatrix& acm,  bool verbose = false) const;
 
-    virtual double distanceWorld(const CollisionWorld& world) const;
+    virtual double distanceWorld(const CollisionWorld& world,  bool verbose = false) const;
 
     virtual double distanceWorld(
         const CollisionWorld& world,
-        const AllowedCollisionMatrix& acm) const;
+        const AllowedCollisionMatrix& acm,  bool verbose = false) const;
 
     virtual void setWorld(const WorldPtr& world);
     ///@}

@@ -2,6 +2,8 @@
 
 #include <ros/ros.h>
 
+#include <moveit/planning_scene/planning_scene.h>
+
 namespace sbpl_interface {
 
 PlannerFamilyManager::PlannerFamilyManager() :
@@ -96,6 +98,7 @@ planning_interface::PlanningContextPtr PlannerFamilyManager::getPlanningContext(
     const planning_interface::MotionPlanRequest& req,
     moveit_msgs::MoveItErrorCodes& error_code) const
 {
+   
     std::string plugin_name, alg_name;
     if (!parsePlannerId(req.planner_id, plugin_name, alg_name)) {
         ROS_ERROR("Failed to parse planner id for plugin name");
@@ -104,6 +107,8 @@ planning_interface::PlanningContextPtr PlannerFamilyManager::getPlanningContext(
 
     planning_interface::MotionPlanRequest mreq = req;
     mreq.planner_id = alg_name;
+    moveit_msgs::PlanningScene scene_msg;
+    
     return m_planner_plugins.at(plugin_name)->getPlanningContext(
             planning_scene, mreq, error_code);
 }
@@ -112,7 +117,7 @@ bool PlannerFamilyManager::canServiceRequest(
     const planning_interface::MotionPlanRequest& req) const
 {
     std::string plugin_name, alg_name;
-    if (!parsePlannerId(req.planner_id, plugin_name, alg_name)) {
+   if (!parsePlannerId(req.planner_id, plugin_name, alg_name)) {
         return false;
     }
 

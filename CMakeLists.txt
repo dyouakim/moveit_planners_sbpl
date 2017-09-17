@@ -48,21 +48,21 @@ include_directories(${SBPL_INCLUDE_DIRS})
 include_directories(${catkin_INCLUDE_DIRS})
 include_directories(include)
 
-qt4_wrap_cpp(
-    MOVE_GROUP_COMMAND_PANEL_MOC_SOURCES
-    src/joint_variable_command_widget.h
-    src/move_group_command_model.h
-    src/move_group_command_panel.h)
-add_library(
-    move_group_command_panel_plugin
-    ${MOVE_GROUP_COMMAND_PANEL_MOC_SOURCES}
-    src/joint_variable_command_widget.cpp
-    src/move_group_command_model.cpp
-    src/move_group_command_panel.cpp)
-target_link_libraries(
-    move_group_command_panel_plugin
-    ${QT_LIBRARIES}
-    ${catkin_LIBRARIES})
+#qt4_wrap_cpp(
+#    MOVE_GROUP_COMMAND_PANEL_MOC_SOURCES
+#    src/joint_variable_command_widget.h
+#    src/move_group_command_model.h
+#    src/move_group_command_panel.h)
+#add_library(
+#    move_group_command_panel_plugin
+#    ${MOVE_GROUP_COMMAND_PANEL_MOC_SOURCES}
+#    src/joint_variable_command_widget.cpp
+#    src/move_group_command_model.cpp
+#    src/move_group_command_panel.cpp)
+#target_link_libraries(
+#    move_group_command_panel_plugin
+#    ${QT_LIBRARIES}
+#    ${catkin_LIBRARIES})
 
 add_library(
     collision_detection_sbpl
@@ -97,14 +97,14 @@ install(
     FILES
         sbpl_interface_plugin_description.xml
         collision_detection_sbpl_plugin_description.xml
-        move_group_command_panel_plugin_description.xml
+      # move_group_command_panel_plugin_description.xml
     DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 
 install(
     TARGETS
         collision_detection_sbpl
         moveit_sbpl_planner_plugin
-        move_group_command_panel_plugin
+        #move_group_command_panel_plugin
     RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
     ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
     LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})

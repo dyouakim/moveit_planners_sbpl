@@ -165,7 +165,7 @@ void CollisionWorldSBPL::checkWorldCollision(
 
 double CollisionWorldSBPL::distanceRobot(
     const CollisionRobot& robot,
-    const robot_state::RobotState& state) const
+    const robot_state::RobotState& state,  bool verbose) const
 {
     // TODO: implement
     ROS_INFO_NAMED(CWP_LOGGER, "distanceRobot(robot, state)");
@@ -175,14 +175,14 @@ double CollisionWorldSBPL::distanceRobot(
 double CollisionWorldSBPL::distanceRobot(
     const CollisionRobot& robot,
     const robot_state::RobotState& state,
-    const AllowedCollisionMatrix& acm) const
+    const AllowedCollisionMatrix& acm,  bool verbose) const
 {
     // TODO: implement
     ROS_INFO_NAMED(CWP_LOGGER, "distanceRobot(robot, state, acm)");
     return -1.0;
 }
 
-double CollisionWorldSBPL::distanceWorld(const CollisionWorld& world) const
+double CollisionWorldSBPL::distanceWorld(const CollisionWorld& world,  bool verbose) const
 {
     // TODO: implement
     ROS_INFO_NAMED(CWP_LOGGER, "distanceWorld(world)");
@@ -191,7 +191,7 @@ double CollisionWorldSBPL::distanceWorld(const CollisionWorld& world) const
 
 double CollisionWorldSBPL::distanceWorld(
     const CollisionWorld& world,
-    const AllowedCollisionMatrix& acm) const
+    const AllowedCollisionMatrix& acm,  bool verbose) const
 {
     // TODO: implement
     ROS_INFO_NAMED(CWP_LOGGER, "distanceWorld(world, acm)");

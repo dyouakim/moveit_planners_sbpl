@@ -7,6 +7,7 @@
 // system includes
 #include <moveit/planning_interface/planning_interface.h>
 #include <pluginlib/class_loader.h>
+#include "boost/scoped_ptr.hpp"
 
 namespace sbpl_interface {
 

@@ -168,7 +168,7 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
     robot_trajectory::RobotTrajectoryPtr traj(
             new robot_trajectory::RobotTrajectory(robot, getGroupName()));
     traj->setRobotTrajectoryMsg(*start_state, res_msg.trajectory);
-
+    traj->setEEPath(res_msg.trajectory.ee_pose);
     // TODO: Is there any reason to use res_msg.trajectory_start as the
     // reference state or res_msg.group_name in the above RobotTrajectory
     // constructor?
