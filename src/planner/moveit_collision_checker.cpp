@@ -42,8 +42,9 @@
 #include <ros/console.h>
 #include <ros/ros.h>
 #include <smpl/angles.h>
+#include <smpl/debug/marker_conversions.h>
 
-#include <moveit_planners_sbpl/moveit_robot_model.h>
+#include <moveit_planners_sbpl/planner/moveit_robot_model.h>
 
 namespace sbpl_interface {
 
@@ -135,9 +136,7 @@ smpl::Extension* MoveItCollisionChecker::getExtension(size_t class_code)
 
 bool MoveItCollisionChecker::isStateValid(
     const smpl::RobotState& state,
-    bool verbose,
-    bool visualize,
-    double& dist)
+    bool verbose)
 {
     if (!initialized()) {
         ROS_ERROR("MoveItCollisionChecker is not initialized");
@@ -156,38 +155,19 @@ bool MoveItCollisionChecker::isStateValid(
     //
     // http://docs.ros.org/indigo/api/moveit_core/html/classplanning__scene_1_1PlanningScene.html
     //
-    if (m_scene->isStateColliding(
-            *m_ref_state, m_robot_model->planningGroupName(), verbose))
-    {
-        dist = 0.0;
-        if (visualize) {
-            auto ma = getCollisionModelVisualization(state);
-            for (auto& marker : ma.markers) {
-                marker.color.r = 0.8;
-                marker.ns = "collision";
-            }
-            m_vpub.publish(ma);
-        }
-        return false;
-    }
-
-    return true;
+    return !m_scene->isStateColliding(
+            *m_ref_state, m_robot_model->planningGroupName(), verbose);
 }
 
 bool MoveItCollisionChecker::isStateToStateValid(
     const smpl::RobotState& start,
     const smpl::RobotState& finish,
-    int& path_length,
-    int& num_checks,
-    double& dist)
+    bool verbose)
 {
-    path_length = 0;
-    num_checks = 0;
-    dist = std::numeric_limits<double>::infinity();
     if (m_enabled_ccd) {
         return checkContinuousCollision(start, finish);
     } else {
-        return checkInterpolatedPathCollision(start, finish, num_checks, dist);
+        return checkInterpolatedPathCollision(start, finish);
     }
 }
 
@@ -233,9 +213,7 @@ auto MoveItCollisionChecker::checkContinuousCollision(
 
 auto MoveItCollisionChecker::checkInterpolatedPathCollision(
     const sbpl::motion::RobotState& start,
-    const sbpl::motion::RobotState& finish,
-    int& check_count,
-    double& dist)
+    const sbpl::motion::RobotState& finish)
     -> bool
 {
     int waypoint_count = interpolatePathFast(start, finish, m_waypoint_path);
@@ -245,13 +223,7 @@ auto MoveItCollisionChecker::checkInterpolatedPathCollision(
 
     for (int widx = 0; widx < waypoint_count; ++widx) {
         const smpl::RobotState& p = m_waypoint_path[widx];
-        double d;
-        bool res = isStateValid(p, false, false, d);
-        if (d < dist) {
-            dist = d;
-        }
-        ++check_count;
-        if (!res) {
+        if (!isStateValid(p, false)) {
             return false;
         }
     }
@@ -330,9 +302,9 @@ int MoveItCollisionChecker::interpolatePathFast(
     return waypoint_count;
 }
 
-visualization_msgs::MarkerArray
-MoveItCollisionChecker::getCollisionModelVisualization(
+auto MoveItCollisionChecker::getCollisionModelVisualization(
     const smpl::RobotState& state)
+    -> std::vector<sbpl::visual::Marker>
 {
     moveit::core::RobotState robot_state(*m_ref_state);
 
@@ -352,22 +324,23 @@ MoveItCollisionChecker::getCollisionModelVisualization(
             ros::Duration(0),
             true);
 
-    const moveit::core::LinkModel* tip_link = m_robot_model->planningTipLink();
+    auto* tip_link = m_robot_model->planningTipLink();
     if (tip_link) {
-        const Eigen::Affine3d& T_model_tip =
-                robot_state.getGlobalLinkTransform(tip_link->getName());
+        auto& T_model_tip = robot_state.getGlobalLinkTransform(tip_link->getName());
         auto frame_markers = viz::getFrameMarkerArray(
                 T_model_tip, m_robot_model->moveitRobotModel()->getModelFrame(), "", marker_arr.markers.size());
         marker_arr.markers.insert(marker_arr.markers.end(), frame_markers.markers.begin(), frame_markers.markers.end());
     }
 
-    return marker_arr;
-}
+    std::vector<sbpl::visual::Marker> markers;
+    markers.reserve(marker_arr.markers.size());
+    for (auto& mm : marker_arr.markers) {
+        sbpl::visual::Marker m;
+        sbpl::visual::ConvertMarkerMsgToMarker(mm, m);
+        markers.push_back(std::move(m));
+    }
 
-visualization_msgs::MarkerArray
-MoveItCollisionChecker::getVisualization(const std::string& type)
-{
-    return visualization_msgs::MarkerArray();
+    return markers;
 }
 
 } // namespace sbpl_interface

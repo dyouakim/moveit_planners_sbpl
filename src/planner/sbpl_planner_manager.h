@@ -1,13 +1,14 @@
 #ifndef sbpl_interface_sbpl_planner_manager_h
 #define sbpl_interface_sbpl_planner_manager_h
 
+// system includes
 #include <XmlRpcValue.h>
 #include <moveit/macros/class_forward.h>
 #include <moveit/planning_interface/planning_interface.h>
-
-#include <moveit_planners_sbpl/moveit_robot_model.h>
-
 #include <smpl/debug/visualizer_ros.h>
+#include "sbpl_planning_context.h"
+// project includes
+#include <moveit_planners_sbpl/planner/moveit_robot_model.h>
 
 namespace sbpl_interface {
 
@@ -55,6 +56,8 @@ public:
 
 private:
 
+    std::map<std::string, SBPLPlanningContextPtr> planning_contexts_;
+
     moveit::core::RobotModelConstPtr m_robot_model;
 
     // per-group sbpl robot model
@@ -63,6 +66,8 @@ private:
     sbpl::VisualizerROS m_viz;
 
     planning_interface::PlannerConfigurationMap map;
+
+    std::map<int, sbpl_interface::SBPLPlanningContext*> m_sbpl_context;
 
     void logPlanningScene(const planning_scene::PlanningScene& scene) const;
     void logMotionPlanRequest(

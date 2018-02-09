@@ -49,8 +49,7 @@
 #include <smpl/occupancy_grid.h>
 
 // project includes
-#include <moveit_planners_sbpl/moveit_robot_model.h>
-#include <moveit_planners_sbpl/collision_robot_sbpl.h>
+#include "collision_robot_sbpl.h"
 
 namespace collision_detection {
 
@@ -144,8 +143,6 @@ private:
     std::unordered_map<std::string, CollisionStateUpdaterPtr> m_updaters;
 
     World::ObserverHandle m_observer_handle;
-
-    ros::Publisher m_cspace_pub;
 
     void construct();
 

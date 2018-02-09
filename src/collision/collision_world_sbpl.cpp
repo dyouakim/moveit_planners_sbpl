@@ -29,7 +29,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 ////////////////////////////////////////////////////////////////////////////////
 
-#include <moveit_planners_sbpl/collision_world_sbpl.h>
+#include "collision_world_sbpl.h"
 
 // standard includes
 #include <stdexcept>
@@ -38,12 +38,10 @@
 #include <ros/ros.h>
 #include <geometric_shapes/shape_operations.h>
 #include <leatherman/print.h>
-
-// project includes
-#include <moveit_planners_sbpl/moveit_robot_model.h>
+#include <smpl/debug/visualize.h>
 
 // module includes
-#include <moveit_planners_sbpl/collision_common_sbpl.h>
+#include "collision_common_sbpl.h"
 
 namespace collision_detection {
 
@@ -54,6 +52,8 @@ CollisionWorldSBPL::CollisionWorldSBPL() : CollisionWorld()
 {
     ROS_INFO_NAMED(CWP_LOGGER, "CollisionWorldSBPL()");
     construct();
+
+  ROS_ERROR("const1-CW");
 }
 
 CollisionWorldSBPL::CollisionWorldSBPL(const WorldPtr& world) :
@@ -62,6 +62,8 @@ CollisionWorldSBPL::CollisionWorldSBPL(const WorldPtr& world) :
     ROS_INFO_NAMED(CWP_LOGGER, "CollisionWorldSBPL(world = %p)", world.get());
     construct();
     registerWorldCallback();
+
+  ROS_ERROR("const2-CW");
 }
 
 CollisionWorldSBPL::CollisionWorldSBPL(
@@ -82,7 +84,8 @@ CollisionWorldSBPL::CollisionWorldSBPL(
     // NOTE: no need to copy observer handle
     registerWorldCallback();
     // NOTE: no need to copy node handle
-    m_cspace_pub = other.m_cspace_pub;
+
+  ROS_ERROR("const3-CW");
 }
 
 CollisionWorldSBPL::~CollisionWorldSBPL()
@@ -227,17 +230,12 @@ void CollisionWorldSBPL::construct()
 
     // TODO: allowed collisions matrix
 
-    ros::NodeHandle nh;
-    m_cspace_pub = nh.advertise<visualization_msgs::MarkerArray>(
-            "visualization_markers", 10);
-
     ROS_INFO("Sleep to allow publish to set up");
     ros::Duration(0.5).sleep();
     ROS_INFO("Done sleeping");
 
     // publish collision world visualizations
-    auto markers = m_grid->getBoundingBoxVisualization();
-    m_cspace_pub.publish(markers);
+    SV_SHOW_INFO(m_grid->getBoundingBoxVisualization());
 }
 
 void CollisionWorldSBPL::copyOnWrite()
@@ -263,7 +261,7 @@ void CollisionWorldSBPL::copyOnWrite()
 sbpl::OccupancyGridPtr CollisionWorldSBPL::createGridFor(
     const CollisionGridConfig& config) const
 {
-    ROS_DEBUG_NAMED(CWP_LOGGER, "  Creating Distance Field");
+    ROS_ERROR_NAMED(CWP_LOGGER, "  Creating Distance Field");
     ROS_DEBUG_NAMED(CWP_LOGGER, "    size: (%0.3f, %0.3f, %0.3f)", config.size_x, config.size_y, config.size_z);
     ROS_DEBUG_NAMED(CWP_LOGGER, "    origin: (%0.3f, %0.3f, %0.3f)", config.origin_x, config.origin_y, config.origin_z);
     ROS_DEBUG_NAMED(CWP_LOGGER, "    resolution: %0.3f", config.res_m);
@@ -517,7 +515,7 @@ void CollisionWorldSBPL::checkRobotCollisionMutable(
                 m.color.g = m.color.b = 0.0;
             }
         }
-        m_cspace_pub.publish(ma);
+        SV_SHOW_INFO(ma);
     }
 
     if (!valid) {
@@ -619,7 +617,7 @@ void CollisionWorldSBPL::checkRobotCollisionMutable(
                 m.color.g = m.color.b = 0.0;
             }
         }
-        m_cspace_pub.publish(ma);
+        SV_SHOW_INFO(ma);
     }
 
     if (!valid) {

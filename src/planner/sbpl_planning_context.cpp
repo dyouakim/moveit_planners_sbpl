@@ -9,9 +9,10 @@
 #include <moveit_msgs/GetMotionPlan.h>
 #include <moveit_msgs/PlanningScene.h>
 #include <smpl/ros/propagation_distance_field.h>
+#include <smpl/debug/visualize.h>
 
 // project includes
-#include <moveit_planners_sbpl/collision_world_sbpl.h>
+#include "../collision/collision_world_sbpl.h"
 
 static const char* PP_LOGGER = "planning";
 
@@ -88,10 +89,10 @@ namespace sbpl_interface {
 
 SBPLPlanningContext::SBPLPlanningContext(
     MoveItRobotModel* robot_model,
-    const std::string& name,
+    //const std::string& name,
     const std::string& group)
 :
-    Base(name, group),
+    Base("sbpl_planning_context", group),
     m_robot_model(robot_model),
     m_collision_checker(),
     m_grid(),
@@ -107,17 +108,18 @@ SBPLPlanningContext::~SBPLPlanningContext()
 
 bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
 {
-    planning_scene::PlanningSceneConstPtr scene = getPlanningScene();
-    assert(scene);
-    moveit::core::RobotModelConstPtr robot = scene->getRobotModel();
-    assert(robot);
     const planning_interface::MotionPlanRequest& req = getMotionPlanRequest();
-
     moveit_msgs::MotionPlanRequest req_msg;
     if (!translateRequest(req_msg)) {
         ROS_WARN_NAMED(PP_LOGGER, "Unable to translate Motion Plan Request to SBPL Motion Plan Request");
         return false;
     }
+
+    planning_scene::PlanningSceneConstPtr scene = getPlanningScene();
+    assert(scene);
+    moveit::core::RobotModelConstPtr robot = scene->getRobotModel();
+    assert(robot);
+    
 
     // apply requested deltas/overrides to the current start state
     robot_state::RobotStateConstPtr start_state;
@@ -135,14 +137,18 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
         res.trajectory_->addSuffixWayPoint(*start_state, 0.0);
         res.planning_time_ = 0.0;
         res.error_code_.val = moveit_msgs::MoveItErrorCodes::SUCCESS;
+        res.iterations_ = 0;
+        res.cost_ = 0;
         return true;
     }
-
+    ROS_ERROR_STREAM("here before initSBPL");
     std::string why;
     if (!initSBPL(why)) {
         ROS_WARN_NAMED(PP_LOGGER, "Failed to initialize SBPL (%s)", why.c_str());
         res.planning_time_ = 0.0;
         res.error_code_.val = moveit_msgs::MoveItErrorCodes::PLANNING_FAILED;
+        res.iterations_ = -1;
+        res.cost_ = -1;
         return false;
     }
 
@@ -157,6 +163,8 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
         res.trajectory_.reset();
         res.planning_time_ = res_msg.planning_time;
         res.error_code_ = res_msg.error_code;
+        res.iterations_ = res_msg.iterations;
+        res.cost_ = res_msg.cost;
         return false;
     }
 
@@ -181,6 +189,8 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
     res.trajectory_ = traj;
     res.planning_time_ = res_msg.planning_time;
     res.error_code_ = res_msg.error_code;
+    res.iterations_ = res_msg.iterations;
+    res.cost_ = res_msg.cost;
     return true;
 }
 
@@ -197,6 +207,10 @@ bool SBPLPlanningContext::solve(
     res.description_.push_back("sbpl_result");
     res.processing_time_.push_back(simple_res.planning_time_);
     res.error_code_ = simple_res.error_code_;
+    res.iterations_.push_back(simple_res.iterations_);
+    res.cost_.push_back(simple_res.cost_);
+    ROS_INFO_NAMED(PP_LOGGER, "  epsilon: %zu ", simple_res.cost_);
+    ROS_INFO_NAMED(PP_LOGGER, "  expansionssss: %zu ", simple_res.iterations_);
     return true;
 }
 
@@ -213,6 +227,7 @@ void SBPLPlanningContext::clear()
 
 bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
 {
+    // merge parameters from global group parameters and parameters for the
     ROS_DEBUG_NAMED(PP_LOGGER, "Initialize SBPL Planning Context");
 
     // TODO: implement a way to pass down planner-specific parameters to the
@@ -222,7 +237,7 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
     if (!m_robot_model->initialized()) {
         ROS_ERROR_NAMED(PP_LOGGER, "MoveIt! Robot Model is not initialized");
         return false;
-    }
+}
 
     // TODO: the only required parameters here should be "search", "heuristic",
     // "graph", and "shortcutter"...reframe PlanningParams to take the
@@ -234,8 +249,6 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
         "heuristic",
         "graph",
         "shortcutter",
-
-        "epsilon",
 
         // post-processing
         "shortcut_path",
@@ -250,13 +263,16 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
         }
     }
 
-    const std::string& search_name = config.at("search");
-    const std::string& heuristic_name = config.at("heuristic");
-    const std::string& graph_name = config.at("graph");
-    m_planner_id = search_name + "." + heuristic_name + "." + graph_name;
-    ROS_INFO("  Request planner '%s'", m_planner_id.c_str());
-
-    m_use_bfs = (heuristic_name == "bfs" || heuristic_name == "mfbfs" || heuristic_name == "bfs_egraph");
+    const std::string search_name = config.at("search");
+    ROS_ERROR_STREAM("search "<<search_name);
+    const std::string heuristic_name = config.at("heuristic");
+    ROS_ERROR_STREAM("search "<<heuristic_name);
+    const std::string graph_name = config.at("graph");
+    ROS_ERROR_STREAM("search "<<graph_name);
+    m_planner_id  = search_name + "." + heuristic_name + "." + graph_name;
+    ROS_DEBUG("  Request planner '%s'", m_planner_id.c_str());
+    
+    m_use_bfs = (heuristic_name == "bfs" || heuristic_name == "mfbfs" || heuristic_name == "bfs_egraph" || heuristic_name == "mbfs");
 
     // check for all parameters required for bfs heuristic
     if (m_use_bfs) {
@@ -296,16 +312,20 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
     double bfs_res_y = 0.0;
     double bfs_res_z = 0.0;
     pp.planning_link_sphere_radius = 0.0;
+    pp.base_radius = 0.0;
     if (m_use_bfs) {
         try {
             bfs_res_x = std::stod(config.at("bfs_res_x"));
             bfs_res_y = std::stod(config.at("bfs_res_y"));
             bfs_res_z = std::stod(config.at("bfs_res_z"));
             pp.planning_link_sphere_radius = std::stod(config.at("bfs_sphere_radius"));
+            
 
             if (bfs_res_x != bfs_res_y || bfs_res_x != bfs_res_z) {
                 ROS_WARN_NAMED(PP_LOGGER, "Distance field currently only supports uniformly discretized grids. Using x resolution (%0.3f) as resolution for all dimensions", bfs_res_x);
             }
+            if(heuristic_name == "mbfs")
+                pp.base_radius = std::stod(config.at("bfs_base_radius"));
         }
         catch (const std::logic_error& ex) { // thrown by std::stod
             ROS_ERROR_NAMED(PP_LOGGER, "Failed to convert bfs resolutions to floating-point values");
@@ -327,7 +347,7 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
     const std::string default_shortcut_type = "joint_space";
 
     pp.shortcut_path = config.at("shortcut_path") == "true";
-    pp.shortcut_type = shortcut_name_to_value.at(default_shortcut_type);
+    pp.shortcut_type = shortcut_name_to_value.at(config.at("shortcutter"));
     if (pp.shortcut_path) {
         auto it = config.find("shortcutter");
         if (it != config.end()) {
@@ -377,6 +397,7 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
     m_bfs_res_y = bfs_res_y;
     m_bfs_res_z = bfs_res_z;
 
+    ROS_INFO("Init Done!");
     return true;
 }
 
@@ -555,7 +576,8 @@ bool SBPLPlanningContext::initHeuristicGrid(
     const double res_z_m = m_use_bfs ? m_bfs_res_z : default_bfs_res;
 
     const double max_distance = m_use_bfs ?
-            m_pp.planning_link_sphere_radius + res_x_m : res_x_m;
+            std::max (m_pp.planning_link_sphere_radius, m_pp.base_radius) + res_x_m : res_x_m;
+
 
     Eigen::Affine3d T_planning_workspace;
     T_planning_workspace = Eigen::Translation3d(
@@ -574,7 +596,8 @@ bool SBPLPlanningContext::initHeuristicGrid(
     ROS_DEBUG_NAMED(PP_LOGGER, "  origin_y: %0.3f", workspace_pos_in_planning.y());
     ROS_DEBUG_NAMED(PP_LOGGER, "  origin_z: %0.3f", workspace_pos_in_planning.z());
 
-    auto hdf = std::make_shared<sbpl::PropagationDistanceField>(
+
+    auto hdf = std::make_shared<sbpl::SBPLPropagationDistanceField>(
             workspace_pos_in_planning.x(),
             workspace_pos_in_planning.y(),
             workspace_pos_in_planning.z(),
@@ -640,14 +663,38 @@ bool SBPLPlanningContext::initHeuristicGrid(
     collision_detection::WorldConstPtr world = cworld->getWorld();
     if (world) {
         int insert_count = 0;
+
+        for (auto& e : *world) {
+            ROS_WARN("INSERT AN OBJECT");
+            auto& name = e.first;
+            auto& object = e.second;
+            auto& shape = object->shapes_[0];
+            auto& shape_pose = object->shape_poses_[0];
+
+           if (!cmodel.insertObject(object)) {
+
+            ROS_WARN_NAMED(PP_LOGGER, "Failed to insert object '%s' into heuristic grid", e.first.c_str());
+            }
+            else {
+
+                ++insert_count;
+            }
+
+        }
+
+ 
+#if 0
         for (auto oit = world->begin(); oit != world->end(); ++oit) {
+            ROS_WARN_STREAM((*oit)->shape_poses_[0][0]<<","<<(*oit)->shape_poses_[0][1]<<","<<(*oit)->shape_poses_[0][2]);
             if (!cmodel.insertObject(oit->second)) {
                 ROS_WARN_NAMED(PP_LOGGER, "Failed to insert object '%s' into heuristic grid", oit->first.c_str());
             }
             else {
+
                 ++insert_count;
             }
         }
+#endif              
         ROS_DEBUG_NAMED(PP_LOGGER, "Inserted %d objects into the heuristic grid", insert_count);
     }
     else {
