@@ -40,10 +40,13 @@ static const char* PP_LOGGER = "planning";
 SBPLPlannerManager::SBPLPlannerManager() :
     Base(),
     m_robot_model(),
-    m_viz()
+    m_viz(),
+    lastRequestId_(-1)
+
 {
     ROS_DEBUG_NAMED(PP_LOGGER, "Constructed SBPL Planner Manager");
     sbpl::viz::set_visualizer(&m_viz);
+    cached_contexts_ = new SBPLCachedContexts();
 }
 
 SBPLPlannerManager::~SBPLPlannerManager()
@@ -73,12 +76,13 @@ bool SBPLPlannerManager::initialize(
     std::vector<std::string> groups = model->getJointModelGroupNames();
 
     ROS_INFO_STREAM("Following groups exist:");
+
     for (int i = 0; i < groups.size(); i++)
     {
         ROS_INFO("%s", groups[i].c_str());
         MoveItRobotModel* sbpl_model = getModelForGroup(groups[i]);
-        planning_contexts_[groups[i]] =
-          SBPLPlanningContextPtr(new SBPLPlanningContext(sbpl_model, groups[i]));
+        boost::mutex::scoped_lock slock(cached_contexts_->lock_);
+        cached_contexts_->contexts_[groups[i]] = SBPLPlanningContextPtr(new SBPLPlanningContext(sbpl_model, groups[i]));
     }
 
     ROS_INFO_NAMED(PP_LOGGER, "Initialized SBPL Planner Manager");
@@ -153,27 +157,8 @@ planning_interface::PlanningContextPtr SBPLPlannerManager::getPlanningContext(
     // Initialize a new SBPL Planning Context
     ///////////////////////////////////////////
 
-//    logPlanningScene(*planning_scene);
- /*   logMotionPlanRequest(req);
-    ROS_WARN_STREAM("in manager with req_id "<<req.request_id);
-
-    planning_contexts_.at(req.group_name)->setMotionPlanRequest(req);
-    planning_contexts_.at(req.group_name)->setPlanningScene(planning_scene);
-
-    
-     // find a configuration for this group + planner_id
-    const planning_interface::PlannerConfigurationMap& pcm = getPlannerConfigurations();
-    if (!mutable_me->planning_contexts_[req.group_name]->init(pcm)) {
-            ROS_ERROR_NAMED(PP_LOGGER, "Failed to initialize SBPL Planning Context");
-            delete mutable_me->planning_contexts_[req.group_name].get();
-            return context;
-        }
-
-    
-    context.reset(planning_contexts_.at(req.group_name).get());
-    return context;*/
-    SBPLPlanningContext* sbpl_context = new SBPLPlanningContext(
-            sbpl_model, req.group_name);
+    //logPlanningScene(*planning_scene);
+    //logMotionPlanRequest(req);
 
     // find a configuration for this group + planner_id
     const planning_interface::PlannerConfigurationMap& pcm = getPlannerConfigurations();
@@ -192,17 +177,36 @@ planning_interface::PlanningContextPtr SBPLPlannerManager::getPlanningContext(
         }
     }
 
-    if (!sbpl_context->init(all_params)) {
+    ROS_WARN_STREAM("in manager with req_id "<<req.request_id);
+    SBPLPlanningContextPtr sbpl_context;// = new SBPLPlanningContext(sbpl_model, req.group_name);
+
+
+    {
+        boost::mutex::scoped_lock slock(cached_contexts_->lock_);
+        std::map<std::string, SBPLPlanningContextPtr>::const_iterator cc =
+            cached_contexts_->contexts_.find(req.group_name);
+        if (cc != cached_contexts_->contexts_.end())
+        {
+          if (cc->second.unique())
+            {
+              logDebug("Reusing cached planning context");
+              sbpl_context = cc->second;
+            }
+        }
+    }
+    
+    ROS_WARN_STREAM("Request current "<<req.request_id<< " and previous "<< lastRequestId_);
+    if (req.request_id!=lastRequestId_  && !sbpl_context->init(all_params)) {
         ROS_ERROR_NAMED(PP_LOGGER, "Failed to initialize SBPL Planning Context");
-        delete sbpl_context;
+        //delete sbpl_context;
         return context;
     }
 
+    const_cast<SBPLPlannerManager*>(this)->lastRequestId_ = req.request_id;
     sbpl_context->setPlanningScene(planning_scene);
     sbpl_context->setMotionPlanRequest(req);
-
-    context.reset(sbpl_context);
-return context;
+   
+    return sbpl_context;
 }
 
 bool SBPLPlannerManager::canServiceRequest(

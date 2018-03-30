@@ -141,9 +141,10 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
         res.cost_ = 0;
         return true;
     }
-    ROS_ERROR_STREAM("here before initSBPL");
     std::string why;
-    if (!initSBPL(why)) {
+    ROS_ERROR_STREAM("here before initSBPL current "<<req_msg.request_id<<" last "<<lastRequestId_);
+    
+    if ( req_msg.request_id!=lastRequestId_ && !initSBPL(why)) {
         ROS_WARN_NAMED(PP_LOGGER, "Failed to initialize SBPL (%s)", why.c_str());
         res.planning_time_ = 0.0;
         res.error_code_.val = moveit_msgs::MoveItErrorCodes::PLANNING_FAILED;
@@ -151,9 +152,16 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
         res.cost_ = -1;
         return false;
     }
+    else if (req_msg.request_id==lastRequestId_)
+    {
+        planning_scene::PlanningScene* scene_nonconst = const_cast <planning_scene::PlanningScene*> (scene.get());
+        collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(scene_nonconst->getWorldNonConst().get());
+        m_planner->updateGrid(grid_world->grid());
+    }
 
     ROS_DEBUG_NAMED(PP_LOGGER, "Successfully initialized SBPL");
 
+    
     // translate planning scene to planning scene message
     moveit_msgs::PlanningScene scene_msg;
     scene->getPlanningSceneMsg(scene_msg);
@@ -191,6 +199,7 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
     res.error_code_ = res_msg.error_code;
     res.iterations_ = res_msg.iterations;
     res.cost_ = res_msg.cost;
+    lastRequestId_ = req_msg.request_id;
     return true;
 }
 
@@ -396,7 +405,7 @@ bool SBPLPlanningContext::init(const std::map<std::string, std::string>& config)
     m_bfs_res_x = bfs_res_x;
     m_bfs_res_y = bfs_res_y;
     m_bfs_res_z = bfs_res_z;
-
+    lastRequestId_ = -1;
     ROS_INFO("Init Done!");
     return true;
 }
@@ -431,20 +440,41 @@ bool SBPLPlanningContext::initSBPL(std::string& why)
         return false;
     }
 
-    if (!initHeuristicGrid(*scene, req.workspace_parameters)) {
+    planning_scene::PlanningScene* scene_nonconst = const_cast <planning_scene::PlanningScene*> (scene.get());
+    
+    if (!initHeuristicGrid(*scene_nonconst, req.workspace_parameters)) {
         why = "Failed to initialize heuristic information";
         return false;
     }
 
-    m_planner = std::make_shared<smpl::PlannerInterface>(
-            m_robot_model, &m_collision_checker, m_grid.get());
+    
+    collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(scene_nonconst->getWorldNonConst().get());
+    
 
-    if (!m_planner->init(m_pp)) {
-        why = "Failed to initialize Planner Interface";
+    if(grid_world)
+    {
+        /*int x,y,z;
+        grid_world->grid()->getDistanceField()->worldToGrid(5,2.5,4.3,x,y,z);
+        ROS_ERROR_STREAM("grid dist to table is "<<grid_world->grid()->getDistanceField()->isCellValid(x,y,z));
+        */
+        ROS_ERROR_STREAM("SBPL CONTEXT Number of collision objects "<<grid_world->getObjectIds().size());
+        ROS_ERROR_STREAM("IN INIT SBPL PRINT ");
+        grid_world->printObjectsSize();
+
+        m_planner = std::make_shared<smpl::PlannerInterface>(
+                m_robot_model, &m_collision_checker, grid_world->grid());
+
+        if (!m_planner->init(m_pp)) {
+            why = "Failed to initialize Planner Interface";
+            return false;
+        }
+        return true;
+    }
+    else
+    {
+        ROS_ERROR("Grid world not set in Planning Scene, can not ue SBPL Planner!");
         return false;
     }
-
-    return true;
 }
 
 // Make any necessary corrections to the motion plan request to conform to
@@ -538,7 +568,7 @@ bool SBPLPlanningContext::getPlanningFrameWorkspaceAABB(
 }
 
 bool SBPLPlanningContext::initHeuristicGrid(
-    const planning_scene::PlanningScene& scene,
+    planning_scene::PlanningScene& scene,
     const moveit_msgs::WorkspaceParameters& workspace)
 {
     // create a distance field in the planning frame that represents the
@@ -607,7 +637,7 @@ bool SBPLPlanningContext::initHeuristicGrid(
 
     if (!m_use_bfs) {
         ROS_DEBUG_NAMED(PP_LOGGER, "Not using BFS heuristic (Skipping occupancy grid filling)");
-        m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
+        //m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
         return true;
     }
 
@@ -638,7 +668,7 @@ bool SBPLPlanningContext::initHeuristicGrid(
             ROS_DEBUG_NAMED(PP_LOGGER, "Copy collision information");
             copyDistanceField(*df, *hdf);
 
-            m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
+            //m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
             init_from_sbpl_cc = true;
         }
         else {
@@ -655,7 +685,7 @@ bool SBPLPlanningContext::initHeuristicGrid(
     // instantiating a full cspace here and using available voxels state
     // information for a more accurate heuristic
 
-    m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
+   /* m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
     m_grid->setReferenceFrame(scene.getPlanningFrame());
     sbpl::collision::WorldCollisionModel cmodel(m_grid.get());
 
@@ -665,7 +695,6 @@ bool SBPLPlanningContext::initHeuristicGrid(
         int insert_count = 0;
 
         for (auto& e : *world) {
-            ROS_WARN("INSERT AN OBJECT");
             auto& name = e.first;
             auto& object = e.second;
             auto& shape = object->shapes_[0];
@@ -680,26 +709,29 @@ bool SBPLPlanningContext::initHeuristicGrid(
                 ++insert_count;
             }
 
-        }
-
- 
-#if 0
-        for (auto oit = world->begin(); oit != world->end(); ++oit) {
-            ROS_WARN_STREAM((*oit)->shape_poses_[0][0]<<","<<(*oit)->shape_poses_[0][1]<<","<<(*oit)->shape_poses_[0][2]);
-            if (!cmodel.insertObject(oit->second)) {
-                ROS_WARN_NAMED(PP_LOGGER, "Failed to insert object '%s' into heuristic grid", oit->first.c_str());
-            }
-            else {
-
-                ++insert_count;
-            }
-        }
-#endif              
+        }           
         ROS_DEBUG_NAMED(PP_LOGGER, "Inserted %d objects into the heuristic grid", insert_count);
     }
     else {
         ROS_WARN_NAMED(PP_LOGGER, "Attempt to insert null World into heuristic grid");
     }
+*/
+
+    collision_detection::GridWorld* grid_world = dynamic_cast< collision_detection::GridWorld*>(scene.getWorldNonConst().get());
+    
+    if(grid_world)
+    {
+        grid_world->grid()->setReferenceFrame(scene.getPlanningFrame());
+        //m_grid =  std::make_shared<sbpl::OccupancyGrid>(*grid_world->grid());
+        ROS_ERROR_STREAM("IN INIT HEURISTIC PRINT ");
+        grid_world->printObjectsSize();
+    }
+    else
+    {
+        ROS_ERROR("Grid World not set in palnning scene, can not use SBPL Planner!");
+        return false;
+    }
+
 
     // note: collision world and going out of scope here will
     // not destroy the prepared distance field and occupancy grid

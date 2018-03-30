@@ -651,33 +651,33 @@ bool SBPLPlanningContext::initHeuristicGrid(
     // instantiating a full cspace here and using available voxels state
     // information for a more accurate heuristic
 
-     collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(scene.getWorldNonConst().get());
+    collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(scene.getWorldNonConst().get());
    
     if(grid_world)
     {
-    /*m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
-    m_grid->setReferenceFrame(scene.getPlanningFrame());*/
-    //scene.setOccupancyGrid(m_grid);
+        /*m_grid = std::make_shared<sbpl::OccupancyGrid>(hdf);
+        m_grid->setReferenceFrame(scene.getPlanningFrame());*/
+        //scene.setOccupancyGrid(m_grid);
 
-    sbpl::collision::WorldCollisionModel cmodel(grid_world->grid());
+        sbpl::collision::WorldCollisionModel cmodel(grid_world->grid());
 
-    // insert world objects into the collision model
-    collision_detection::WorldConstPtr world = cworld->getWorld();
-    if (world) {
-        int insert_count = 0;
-        for (auto oit = grid_world->begin(); oit != grid_world->end(); ++oit) {
-            if (!cmodel.insertObject(oit->second)) {
-                ROS_WARN_NAMED(PP_LOGGER, "Failed to insert object '%s' into heuristic grid", oit->first.c_str());
+        // insert world objects into the collision model
+        collision_detection::WorldConstPtr world = cworld->getWorld();
+        if (world) {
+            int insert_count = 0;
+            for (auto oit = grid_world->begin(); oit != grid_world->end(); ++oit) {
+                if (!cmodel.insertObject(oit->second)) {
+                    ROS_WARN_NAMED(PP_LOGGER, "Failed to insert object '%s' into heuristic grid", oit->first.c_str());
+                }
+                else {
+                    ++insert_count;
+                }
             }
-            else {
-                ++insert_count;
-            }
+            ROS_DEBUG_NAMED(PP_LOGGER, "Inserted %d objects into the heuristic grid", insert_count);
         }
-        ROS_DEBUG_NAMED(PP_LOGGER, "Inserted %d objects into the heuristic grid", insert_count);
-    }
-    else {
-        ROS_WARN_NAMED(PP_LOGGER, "Attempt to insert null World into heuristic grid");
-    }
+        else {
+            ROS_WARN_NAMED(PP_LOGGER, "Attempt to insert null World into heuristic grid");
+        }
     }
     else
     {

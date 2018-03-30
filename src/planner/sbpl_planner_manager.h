@@ -9,8 +9,16 @@
 #include "sbpl_planning_context.h"
 // project includes
 #include <moveit_planners_sbpl/planner/moveit_robot_model.h>
+#include <boost/thread/mutex.hpp> 
 
 namespace sbpl_interface {
+
+
+struct SBPLCachedContexts
+{
+   std::map<std::string, SBPLPlanningContextPtr> contexts_;
+   boost::mutex lock_;
+};
 
 class SBPLPlannerManager : public planning_interface::PlannerManager
 {
@@ -56,7 +64,7 @@ public:
 
 private:
 
-    std::map<std::string, SBPLPlanningContextPtr> planning_contexts_;
+    SBPLCachedContexts* cached_contexts_;
 
     moveit::core::RobotModelConstPtr m_robot_model;
 
@@ -67,7 +75,6 @@ private:
 
     planning_interface::PlannerConfigurationMap map;
 
-    std::map<int, sbpl_interface::SBPLPlanningContext*> m_sbpl_context;
 
     void logPlanningScene(const planning_scene::PlanningScene& scene) const;
     void logMotionPlanRequest(
@@ -99,6 +106,8 @@ private:
         const planning_interface::MotionPlanRequest& req) const;
 
     bool xmlToString(XmlRpc::XmlRpcValue& value, std::string& out) const;
+
+    int lastRequestId_;
 };
 
 MOVEIT_CLASS_FORWARD(SBPLPlannerManager);

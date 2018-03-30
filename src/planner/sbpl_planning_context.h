@@ -64,10 +64,6 @@ public:
         return m_robot_model;
     }
 
-    std::string getPlanner()
-    {
-        return m_planner_id;
-    }
 
 private:
 
@@ -83,6 +79,8 @@ private:
     sbpl::motion::PlanningParams m_pp;
 
     std::string m_planner_id;
+
+    int lastRequestId_;
 
     bool m_use_bfs;
     double m_bfs_res_x;
@@ -102,7 +100,7 @@ private:
         moveit_msgs::OrientedBoundingBox& aabb);
 
     bool initHeuristicGrid(
-        const planning_scene::PlanningScene& scene,
+        planning_scene::PlanningScene& scene,
         const moveit_msgs::WorkspaceParameters& workspace);
     void copyDistanceField(
         const sbpl::DistanceMapInterface& dfin,
