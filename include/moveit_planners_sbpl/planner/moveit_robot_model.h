@@ -86,6 +86,10 @@ public:
     const std::vector<double>& variableMinLimits() const;
     const std::vector<double>& variableMaxLimits() const;
     const std::vector<bool>& variableContinuous() const;
+    std::vector<const robot_model::LinkModel*> getLinksModels() const
+    {
+        return m_links;
+    }
     ///@}
 
     moveit::core::RobotModelConstPtr moveitRobotModel() const;
@@ -157,6 +161,7 @@ private:
 
     std::string m_group_name;
     const moveit::core::JointModelGroup* m_joint_group = nullptr;
+    std::vector<const robot_model::LinkModel*> m_links; 
 
     int m_active_var_count = 0;
     std::vector<std::string> m_active_var_names;

@@ -71,7 +71,8 @@ bool MoveItRobotModel::init(
     m_joint_group = robot_model->getJointModelGroup(group_name);
 
     auto active_joints = m_joint_group->getActiveJointModels();
-
+    m_links = m_robot_model->getLinkModelsWithCollisionGeometry();
+    
     // cache the number, names, and index within robot state of all active
     // variables in this group
     m_active_var_count = 0;
@@ -620,6 +621,40 @@ bool MoveItRobotModel::computeIK(
         return false;
     }
     else {
+        /*ROS_WARN_STREAM("Here in multiple iK with pose "<<pose[0]<<","<<pose[1]<<","<<
+            pose[2]<<","<<pose[3]<<","<<pose[4]<<","<<pose[5]);
+        ROS_WARN_STREAM("first sol "<<solution[0]<<","<<solution[1]<<","<<solution[2]<<","<<
+            solution[3]<<","
+            <<solution[4]<<","<<solution[5]<<","<<solution[6]<<","<<solution[7]);
+        solutions.push_back(std::move(solution));
+        std::vector<double> newstart; 
+        newstart.resize(8,0);
+        newstart[0]=start[0]+0.05;
+        newstart[1]=start[1]+0.05;
+        newstart[2]=start[2]+0.05;
+        newstart[3]=start[3]+0.1;
+        newstart[4]=start[4];
+        newstart[5]=start[5];
+        newstart[6]=start[6];
+        newstart[7]=start[7];
+
+        solution.clear();
+        computeIK(pose, newstart, solution, option);
+        ROS_WARN_STREAM("second sol "<<solution[0]<<","<<solution[1]<<","<<solution[2]<<","<<solution[3]<<","
+            <<solution[4]<<","<<solution[5]<<","<<solution[6]<<","<<solution[7]);
+        newstart[0]=start[0]+0.1;
+        newstart[1]=start[1]+0.1;
+        newstart[2]=start[2]+0.1;
+        newstart[3]=start[3]+0.2;
+        newstart[4]=start[4];
+        newstart[5]=start[5];
+        newstart[6]=start[6];
+        newstart[7]=start[7];
+        solution.clear();
+        computeIK(pose, newstart, solution, option);
+        ROS_WARN_STREAM("third sol "<<solution[0]<<","<<solution[1]<<","<<solution[2]<<","<<solution[3]<<","
+            <<solution[4]<<","<<solution[5]<<","<<solution[6]<<","<<solution[7]);*/
+        
         solutions.push_back(std::move(solution));
         return true;
     }

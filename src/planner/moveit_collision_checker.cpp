@@ -58,6 +58,9 @@ MoveItCollisionChecker::MoveItCollisionChecker() :
 {
     ros::NodeHandle nh;
     m_vpub = nh.advertise<visualization_msgs::MarkerArray>("visualization_markers", 10);
+    collision_model = nh.advertise<visualization_msgs::MarkerArray>("/tra_collision", 10);
+    counter = 0;
+    lastExpansionStep_ = -1;
 }
 
 MoveItCollisionChecker::~MoveItCollisionChecker()
@@ -100,7 +103,6 @@ bool MoveItCollisionChecker::init(
     }
 
     m_robot_model = robot_model;
-
     m_var_incs.reserve(m_robot_model->getPlanningJoints().size());
     for (const std::string& joint_name : m_robot_model->getPlanningJoints()) {
         m_var_incs.push_back(sbpl::angles::to_radians(2.0));
@@ -134,6 +136,87 @@ smpl::Extension* MoveItCollisionChecker::getExtension(size_t class_code)
     return nullptr;
 }
 
+bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, int expansion_step, bool verbose)
+{
+
+    if (!initialized()) {
+        ROS_ERROR("MoveItCollisionChecker is not initialized");
+        return false;
+    }
+
+    planning_scene::PlanningScene* nonconst_scene = const_cast<planning_scene::PlanningScene*> (m_scene.get());
+    collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(nonconst_scene->getWorldNonConst().get());
+    
+    
+    setRobotStateFromState(*m_ref_state, state);
+
+    double res = grid_world->grid()->resolution();
+    int gx,gy,gz;
+    Eigen::Affine3d link_pose;
+    ros::Time t1 = ros::Time::now();
+
+    std::vector< const robot_model::LinkModel*> links = m_robot_model->getLinksModels();
+
+    for (std::size_t i = 0; i < links.size(); ++i)
+    {   
+        //ROS_WARN_STREAM("Link "<<i<<" name is "<<links[i]->getName());
+        link_pose = m_ref_state->getGlobalLinkTransform(links[i]->getName());//links[i]->getLinkIndex());
+        Eigen::Vector3d dim = links[i]->getShapeExtentsAtOrigin ();
+        
+        Eigen::Quaterniond q(link_pose.rotation());
+        int xnumCells = dim[0]/res;
+        int ynumCells = dim[1]/res;
+        int znumCells = dim[2]/res;
+        //ROS_WARN_STREAM("x,y,z Number of cells for link "<<links[i]->getName()<<" is "<<xnumCells<<","<<ynumCells<<","<<znumCells);
+        for(int j=0;j<xnumCells;j++)
+            for(int k=0;k<ynumCells;k++)
+                for(int l=0;l<znumCells;l++)
+            grid_world->grid()->markCellExpansionStep (link_pose.translation().x()+(j*res),link_pose.translation().y()+(k*
+        res),link_pose.translation().z()+(l*res),expansion_step);
+
+        
+
+        /*visualization_msgs::Marker marker;
+        marker.header.frame_id = "world";
+        marker.header.stamp = ros::Time();
+        
+        marker.ns = links[i]->getName();
+        marker.id = counter;
+        counter++;
+        marker.type = visualization_msgs::Marker::CUBE;
+        marker.action = visualization_msgs::Marker::ADD;
+
+        marker.pose.orientation.x = q.x();
+        marker.pose.orientation.y = q.y();
+        marker.pose.orientation.z = q.z();
+        marker.pose.orientation.w = q.w();
+
+        
+        marker.scale.x = dim[0];
+        marker.scale.y = dim[1];
+        marker.scale.z = dim[2];
+
+        marker.pose.position.x = link_pose.translation().x();
+        marker.pose.position.y = link_pose.translation().y();
+        marker.pose.position.z = link_pose.translation().z();
+        marker.color.a = 1.0;
+        marker.color.r = 0.5;
+        marker.color.g = 0.5;
+        marker.color.b = 0.0;
+        
+        vis_array.markers.push_back(marker);
+        collision_model.publish(vis_array);*/
+    }
+
+    ros::Time t2 = ros::Time::now();
+    //ROS_ERROR_STREAM("duration "<<t2.toSec()<<","<<t1.toSec()<<","<<t2.toSec()-t1.toSec());
+    return !m_scene->isStateColliding(
+            *m_ref_state, m_robot_model->planningGroupName(), verbose);
+    
+}
+
+
+
 bool MoveItCollisionChecker::isStateValid(
     const smpl::RobotState& state,
     bool verbose)
@@ -143,8 +226,77 @@ bool MoveItCollisionChecker::isStateValid(
         return false;
     }
 
-    setRobotStateFromState(*m_ref_state, state);
 
+    planning_scene::PlanningScene* nonconst_scene = const_cast<planning_scene::PlanningScene*> (m_scene.get());
+    collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(nonconst_scene->getWorldNonConst().get());
+    
+
+    setRobotStateFromState(*m_ref_state, state);
+    if(lastExpansionStep_!=-1)
+    {
+        double res = grid_world->grid()->resolution();
+        int gx,gy,gz;
+        Eigen::Affine3d link_pose;
+        ros::Time t1 = ros::Time::now();
+
+        std::vector< const robot_model::LinkModel*> links = m_robot_model->getLinksModels();
+
+        for (std::size_t i = 0; i < links.size(); ++i)
+        {   
+            //ROS_WARN_STREAM("Link "<<i<<" name is "<<links[i]->getName());
+            link_pose = m_ref_state->getGlobalLinkTransform(links[i]->getName());//links[i]->getLinkIndex());
+            Eigen::Vector3d dim = links[i]->getShapeExtentsAtOrigin ();
+            
+            Eigen::Quaterniond q(link_pose.rotation());
+            int xnumCells = ceil(dim[0]/res);
+            int ynumCells = ceil(dim[1]/res);
+            int znumCells = ceil(dim[2]/res);
+            //ROS_WARN_STREAM("new call!");
+            //ROS_WARN_STREAM("x,y,z Number of cells for link "<<links[i]->getName()<<" is "<<xnumCells<<","<<ynumCells<<","<<znumCells);
+            for(int j=0;j<xnumCells;j++)
+                for(int k=0;k<ynumCells;k++)
+                    for(int l=0;l<znumCells;l++)
+                    {
+                        //ROS_WARN_STREAM("hereeee "<<lastExpansionStep_);
+                grid_world->grid()->markCellExpansionStep (link_pose.translation().x()+(j*res),link_pose.translation().y()+(k*
+            res),link_pose.translation().z()+(l*res),lastExpansionStep_);
+            }
+
+            /*visualization_msgs::Marker marker;
+            marker.header.frame_id = "world";
+            marker.header.stamp = ros::Time();
+            
+            marker.ns = links[i]->getName();
+            marker.id = counter;
+            counter++;
+            marker.type = visualization_msgs::Marker::CUBE;
+            marker.action = visualization_msgs::Marker::ADD;
+
+            marker.pose.orientation.x = q.x();
+            marker.pose.orientation.y = q.y();
+            marker.pose.orientation.z = q.z();
+            marker.pose.orientation.w = q.w();
+
+            
+            marker.scale.x = dim[0];
+            marker.scale.y = dim[1];
+            marker.scale.z = dim[2];
+
+            marker.pose.position.x = link_pose.translation().x();
+            marker.pose.position.y = link_pose.translation().y();
+            marker.pose.position.z = link_pose.translation().z();
+            marker.color.a = 1.0;
+            marker.color.r = 0.5;
+            marker.color.g = 0.5;
+            marker.color.b = 0.0;
+            
+            vis_array.markers.push_back(marker);
+            collision_model.publish(vis_array);*/
+        }
+
+        ros::Time t2 = ros::Time::now();
+        //ROS_ERROR_STREAM("duration "<<t2.toSec()<<","<<t1.toSec()<<","<<t2.toSec()-t1.toSec());
+    }
     // TODO: need to propagate path_constraints and trajectory_constraints down
     // to this level from the planning context. Once those are propagated, this
     // call will need to be paired with an additional call to isStateConstrained

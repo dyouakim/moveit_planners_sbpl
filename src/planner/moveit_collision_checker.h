@@ -71,6 +71,10 @@ public:
         const sbpl::motion::RobotState& angles,
         bool verbose) override;
 
+    bool isStateValid(const sbpl::motion::RobotState& state, int expansion_step, 
+        bool verbose = false) override;
+
+
     bool isStateToStateValid(
         const sbpl::motion::RobotState& angles0,
         const sbpl::motion::RobotState& angles1,
@@ -86,13 +90,20 @@ public:
     ///@{
     auto getCollisionModelVisualization(const sbpl::motion::RobotState& angles)
         -> std::vector<sbpl::visual::Marker> override;
+
+    void setLastExpansionStep(int step)
+    {
+        lastExpansionStep_ = step;
+    }
+
     ///@}
 
 private:
 
     MoveItRobotModel* m_robot_model;
     std::vector<double> m_var_incs;
-
+    int lastExpansionStep_;
+  
     planning_scene::PlanningSceneConstPtr m_scene;
 
     moveit::core::RobotStatePtr m_ref_state;
@@ -100,9 +111,9 @@ private:
     sbpl::motion::RobotState m_zero_state;
     std::vector<double> m_diffs;
     std::vector<sbpl::motion::RobotState> m_waypoint_path;
-
+    visualization_msgs::MarkerArray vis_array;
     bool m_enabled_ccd;
-
+    int counter;
     auto checkContinuousCollision(
         const sbpl::motion::RobotState& start,
         const sbpl::motion::RobotState& finish)
@@ -125,7 +136,7 @@ private:
         const sbpl::motion::RobotState& finish,
         std::vector<sbpl::motion::RobotState>& opath);
 
-    ros::Publisher m_vpub;
+    ros::Publisher m_vpub, collision_model;
 };
 
 } // namespace sbpl_interface
