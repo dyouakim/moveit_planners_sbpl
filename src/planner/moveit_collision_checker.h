@@ -69,16 +69,21 @@ public:
     ///@{
     bool isStateValid(
         const sbpl::motion::RobotState& angles,
-        bool verbose) override;
+        bool verbose = false) override;
 
-    bool isStateValid(const sbpl::motion::RobotState& state, int expansion_step, 
+    bool isStateValid(const sbpl::motion::RobotState& state, double& distToObst, 
         bool verbose = false) override;
 
 
     bool isStateToStateValid(
         const sbpl::motion::RobotState& angles0,
         const sbpl::motion::RobotState& angles1,
-        bool verbose) override;
+        bool verbose = false) override;
+
+    bool isStateToStateValid(
+        const sbpl::motion::RobotState& angles0,
+        const sbpl::motion::RobotState& angles1, double& distToObst, int& distToObstCells,
+        bool verbose = false) override;
 
     bool interpolatePath(
         const sbpl::motion::RobotState& start,
@@ -96,6 +101,10 @@ public:
         lastExpansionStep_ = step;
     }
 
+    void setClearanceThreshold(double threshold)
+    {
+        clearance_threshold_ = threshold;
+    }
     ///@}
 
 private:
@@ -103,7 +112,8 @@ private:
     MoveItRobotModel* m_robot_model;
     std::vector<double> m_var_incs;
     int lastExpansionStep_;
-  
+    double clearance_threshold_;
+    
     planning_scene::PlanningSceneConstPtr m_scene;
 
     moveit::core::RobotStatePtr m_ref_state;
@@ -114,6 +124,18 @@ private:
     visualization_msgs::MarkerArray vis_array;
     bool m_enabled_ccd;
     int counter;
+    auto checkContinuousCollision(
+        const sbpl::motion::RobotState& start,
+        const sbpl::motion::RobotState& finish,
+        double& distToObst, int& distToObstCells)
+        -> bool;
+
+    auto checkInterpolatedPathCollision(
+        const sbpl::motion::RobotState& start,
+        const sbpl::motion::RobotState& finish,
+        double& distToObst, int& distToObstCells)
+        -> bool;
+
     auto checkContinuousCollision(
         const sbpl::motion::RobotState& start,
         const sbpl::motion::RobotState& finish)
