@@ -37,6 +37,8 @@
 #include <moveit/planning_scene/planning_scene.h>
 #include <moveit/robot_model/robot_model.h>
 #include <moveit/robot_state/robot_state.h>
+#include <moveit_msgs/CollisionCheckResponse.h>
+
 #include <ros/ros.h>
 #include <smpl/collision_checker.h>
 
@@ -105,6 +107,9 @@ public:
     {
         clearance_threshold_ = threshold;
     }
+
+    void markGridForExpandedState(const sbpl::motion::RobotState& state,const sbpl::motion::RobotState& parent_state,int step);
+
     ///@}
 
 private:
@@ -158,7 +163,7 @@ private:
         const sbpl::motion::RobotState& finish,
         std::vector<sbpl::motion::RobotState>& opath);
 
-    ros::Publisher m_vpub, collision_model;
+    ros::Publisher m_vpub, collision_model, obstaclesInfoPub_;
 };
 
 } // namespace sbpl_interface

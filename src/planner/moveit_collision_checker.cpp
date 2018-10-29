@@ -59,6 +59,7 @@ MoveItCollisionChecker::MoveItCollisionChecker() :
     ros::NodeHandle nh;
     m_vpub = nh.advertise<visualization_msgs::MarkerArray>("visualization_markers", 10);
     collision_model = nh.advertise<visualization_msgs::MarkerArray>("/tra_collision", 10);
+    obstaclesInfoPub_ = nh.advertise<moveit_msgs::CollisionCheckResponse>("/moveit_collision_checker/obstacles_info",5);
     counter = 0;
     lastExpansionStep_ = -1;
 }
@@ -136,29 +137,31 @@ smpl::Extension* MoveItCollisionChecker::getExtension(size_t class_code)
     return nullptr;
 }
 
-bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, double& distToObst, bool verbose)
+void MoveItCollisionChecker::markGridForExpandedState(const sbpl::motion::RobotState& state,const sbpl::motion::RobotState& parent_state,int step)
 {
 
-    if (!initialized()) {
-        ROS_ERROR("MoveItCollisionChecker is not initialized");
-        return false;
-    }
-
-
     planning_scene::PlanningScene* nonconst_scene = const_cast<planning_scene::PlanningScene*> (m_scene.get());
+    
     collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(nonconst_scene->getWorldNonConst().get());
     
+    double res = grid_world->grid()->resolution();
+    int gx,gy,gz;
+    Eigen::Affine3d link_pose;
+    ros::Time t1 = ros::Time::now();
 
-    setRobotStateFromState(*m_ref_state, state);
-    if(lastExpansionStep_!=-1)
+    std::vector< const robot_model::LinkModel*> links = m_robot_model->getLinksModels();
+    
+
+    int waypoint_count = interpolatePathFast(parent_state, state, m_waypoint_path);
+    if (waypoint_count < 0) {
+        return ;
+    }
+
+    for (int widx = 0; widx < waypoint_count; ++widx) 
     {
-        double res = grid_world->grid()->resolution();
-        int gx,gy,gz;
-        Eigen::Affine3d link_pose;
-        ros::Time t1 = ros::Time::now();
-
-        std::vector< const robot_model::LinkModel*> links = m_robot_model->getLinksModels();
-
+        ros::Time t1internal = ros::Time::now();
+        const smpl::RobotState& p = m_waypoint_path[widx];
+        setRobotStateFromState(*m_ref_state, p);
         for (std::size_t i = 0; i < links.size(); ++i)
         {   
             //ROS_WARN_STREAM("Link "<<i<<" name is "<<links[i]->getName());
@@ -177,7 +180,6 @@ bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, double&
             if(links[i]->getName()=="arm_base_link_yaw")
             {
                 //ROS_INFO_STREAM("link pose "<<link_pose.translation().x()<<","<<link_pose.translation().y()<<","<<link_pose.translation().z());
-            
                 int xSign = 1,ySign = 1, zSign = 1;
                 for(int j=0;j<xnumCells;j++)
                 for(int k=0;k<ynumCells;k++)
@@ -199,7 +201,7 @@ bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, double&
                         grid_world->grid()->markCellExpansionStep (
                             link_pose.translation().x()+((xSign)*res), 
                             link_pose.translation().y()+((ySign)*res),
-                            link_pose.translation().z()+((zSign)*res),lastExpansionStep_);
+                            link_pose.translation().z()+((zSign)*res),step);
                         /*ROS_INFO_STREAM("Collision checker marking cell "<<link_pose.translation().x()+((xSign)*res)<<","<<
                     link_pose.translation().y()+((ySign)*res)<<","<<link_pose.translation().z()+((zSign)*res));*/
                     }
@@ -211,7 +213,7 @@ bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, double&
                     {
                         //ROS_WARN_STREAM("hereeee "<<lastExpansionStep_);
                 grid_world->grid()->markCellExpansionStep (link_pose.translation().x()+(j*res),link_pose.translation().y()+(k*
-            res),link_pose.translation().z()+(l*res),lastExpansionStep_);
+            res),link_pose.translation().z()+(l*res),step);
                 /*ROS_WARN_STREAM("Collision checker marking cell "<<link_pose.translation().x()+(j*res)<<","<<
                     link_pose.translation().y()+(k*res)<<","<<link_pose.translation().z()+(l*res));*/
             }
@@ -246,11 +248,29 @@ bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, double&
             
             vis_array.markers.push_back(marker);
             collision_model.publish(vis_array);*/
+           
         }
-
-        ros::Time t2 = ros::Time::now();
-        //ROS_ERROR_STREAM("duration "<<t2.toSec()<<","<<t1.toSec()<<","<<t2.toSec()-t1.toSec());
+        ros::Time t2internal = ros::Time::now();
+        //ROS_INFO_STREAM("Cell Marking duration of point "<<widx<<" is "<<t2internal.toSec()<<","<<t1internal.toSec()<<","<<t2internal.toSec()-t1internal.toSec());
+   
     }
+
+    ros::Time t2 = ros::Time::now();
+    ROS_INFO_STREAM("Cell Marking duration "<<t2.toSec()<<","<<t1.toSec()<<","<<t2.toSec()-t1.toSec()<<" for expansion step "<<step);
+   
+}
+
+bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, double& distToObst, bool verbose)
+{
+
+    if (!initialized()) {
+        ROS_ERROR("MoveItCollisionChecker is not initialized");
+        return false;
+    }
+
+
+    setRobotStateFromState(*m_ref_state, state);
+
     // TODO: need to propagate path_constraints and trajectory_constraints down
     // to this level from the planning context. Once those are propagated, this
     // call will need to be paired with an additional call to isStateConstrained
@@ -261,6 +281,38 @@ bool MoveItCollisionChecker::isStateValid(const smpl::RobotState& state, double&
     //
     // http://docs.ros.org/indigo/api/moveit_core/html/classplanning__scene_1_1PlanningScene.html
     //
+    /*collision_detection::CollisionRequest req;
+    req.verbose = verbose;
+    req.group_name = m_robot_model->planningGroupName();
+    req.contacts = true;
+    req.distance = true;
+    collision_detection::CollisionResult res;
+    m_scene->checkCollision(req,res,*m_ref_state);
+    moveit_msgs::CollisionCheckResponse response;
+    std::vector<moveit_msgs::CollisionContact> contacts;
+
+    if(verbose)
+    {
+        if(res.collision)
+        {
+            for (collision_detection::CollisionResult::ContactMap::const_iterator it = res.contacts.begin(); it != res.contacts.end();
+           ++it)
+                for (std::size_t j = 0; j < it->second.size(); ++j)
+                {
+                    moveit_msgs::CollisionContact contact;
+                    contact.source = it->second[j].body_name_1.c_str(); 
+                    contact.dest = it->second[j].body_name_2.c_str();
+                    contacts.push_back(contact);
+                }
+        }
+        response.collision = res.collision;
+        response.distance = res.distance;
+        response.contacts = contacts;
+        obstaclesInfoPub_.publish(response);
+    }
+    distToObst = res.distance;
+    
+    return !res.collision;*/
     return !m_scene->isStateColliding(
             *m_ref_state, m_robot_model->planningGroupName(), distToObst, verbose);
     
@@ -277,113 +329,9 @@ bool MoveItCollisionChecker::isStateValid(
         return false;
     }
 
-
-    planning_scene::PlanningScene* nonconst_scene = const_cast<planning_scene::PlanningScene*> (m_scene.get());
-    collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(nonconst_scene->getWorldNonConst().get());
-    
-
     setRobotStateFromState(*m_ref_state, state);
-    if(lastExpansionStep_!=-1)
-    {
-        double res = grid_world->grid()->resolution();
-        int gx,gy,gz;
-        Eigen::Affine3d link_pose;
-        ros::Time t1 = ros::Time::now();
 
-        std::vector< const robot_model::LinkModel*> links = m_robot_model->getLinksModels();
-
-        for (std::size_t i = 0; i < links.size(); ++i)
-        {   
-            //ROS_WARN_STREAM("Link "<<i<<" name is "<<links[i]->getName());
-            link_pose = m_ref_state->getGlobalLinkTransform(links[i]->getName());//links[i]->getLinkIndex());
-            Eigen::Vector3d dim = links[i]->getShapeExtentsAtOrigin ();
-            
-            Eigen::Quaterniond q(link_pose.rotation());
-            int xnumCells = ceil(dim[0]/res);
-            int ynumCells = ceil(dim[1]/res);
-            int znumCells = ceil(dim[2]/res);
-            //ROS_WARN_STREAM("new call!");
-            /*ROS_INFO_STREAM("x,y,z Number of cells for link "<<links[i]->getName()<<" is "<<xnumCells<<","<<ynumCells<<","<<znumCells);
-            ROS_INFO_STREAM("and pose "<<link_pose.translation().x()<<","<<link_pose.translation().y()<<","<<link_pose.translation().z());
-            ROS_INFO_STREAM("and dimensions "<<dim[0]<<","<<dim[1]<<","<<dim[2]);*/
-                
-            if(links[i]->getName()=="arm_base_link_yaw")
-            {
-                //ROS_INFO_STREAM("link pose "<<link_pose.translation().x()<<","<<link_pose.translation().y()<<","<<link_pose.translation().z());
-            
-                int xSign = 1,ySign = 1, zSign = 1;
-                for(int j=0;j<xnumCells;j++)
-                for(int k=0;k<ynumCells;k++)
-                    for(int l=0;l<znumCells;l++)
-                    {
-                        if(j>xnumCells/2)
-                            xSign = -(j-std::ceil(xnumCells/2));
-                        else
-                            xSign = j;
-                        if(k>ynumCells/2)
-                            ySign = -(k-std::ceil(ynumCells/2));
-                        else
-                            ySign = k;
-                        if(l>znumCells/2)
-                            zSign = -(l-std::ceil(znumCells/2));
-                        else
-                            zSign = l; 
-
-                        grid_world->grid()->markCellExpansionStep (
-                            link_pose.translation().x()+((xSign)*res), 
-                            link_pose.translation().y()+((ySign)*res),
-                            link_pose.translation().z()+((zSign)*res),lastExpansionStep_);
-                        /*ROS_INFO_STREAM("Collision checker marking cell "<<link_pose.translation().x()+((xSign)*res)<<","<<
-                    link_pose.translation().y()+((ySign)*res)<<","<<link_pose.translation().z()+((zSign)*res));*/
-                    }
-
-            }
-            for(int j=0;j<xnumCells;j++)
-                for(int k=0;k<ynumCells;k++)
-                    for(int l=0;l<znumCells;l++)
-                    {
-                        //ROS_WARN_STREAM("hereeee "<<lastExpansionStep_);
-                grid_world->grid()->markCellExpansionStep (link_pose.translation().x()+(j*res),link_pose.translation().y()+(k*
-            res),link_pose.translation().z()+(l*res),lastExpansionStep_);
-                /*ROS_WARN_STREAM("Collision checker marking cell "<<link_pose.translation().x()+(j*res)<<","<<
-                    link_pose.translation().y()+(k*res)<<","<<link_pose.translation().z()+(l*res));*/
-            }
-
-            /*visualization_msgs::Marker marker;
-            marker.header.frame_id = "world";
-            marker.header.stamp = ros::Time();
-            
-            marker.ns = links[i]->getName();
-            marker.id = counter;
-            counter++;
-            marker.type = visualization_msgs::Marker::CUBE;
-            marker.action = visualization_msgs::Marker::ADD;
-
-            marker.pose.orientation.x = q.x();
-            marker.pose.orientation.y = q.y();
-            marker.pose.orientation.z = q.z();
-            marker.pose.orientation.w = q.w();
-
-            
-            marker.scale.x = dim[0];
-            marker.scale.y = dim[1];
-            marker.scale.z = dim[2];
-
-            marker.pose.position.x = link_pose.translation().x();
-            marker.pose.position.y = link_pose.translation().y();
-            marker.pose.position.z = link_pose.translation().z();
-            marker.color.a = 1.0;
-            marker.color.r = 0.5;
-            marker.color.g = 0.5;
-            marker.color.b = 0.0;
-            
-            vis_array.markers.push_back(marker);
-            collision_model.publish(vis_array);*/
-        }
-
-        ros::Time t2 = ros::Time::now();
-        //ROS_ERROR_STREAM("duration "<<t2.toSec()<<","<<t1.toSec()<<","<<t2.toSec()-t1.toSec());
-    }
+   
     // TODO: need to propagate path_constraints and trajectory_constraints down
     // to this level from the planning context. Once those are propagated, this
     // call will need to be paired with an additional call to isStateConstrained
@@ -395,7 +343,37 @@ bool MoveItCollisionChecker::isStateValid(
     // http://docs.ros.org/indigo/api/moveit_core/html/classplanning__scene_1_1PlanningScene.html
     //
 
-   return !m_scene->isStateColliding(
+    /*collision_detection::CollisionRequest req;
+    req.verbose = verbose;
+    req.group_name = m_robot_model->planningGroupName();
+    req.contacts = true;
+    req.distance = true;
+    collision_detection::CollisionResult res;
+    m_scene->checkCollision(req,res,*m_ref_state);
+    moveit_msgs::CollisionCheckResponse response;
+    std::vector<moveit_msgs::CollisionContact> contacts;
+    if(verbose)
+    {
+        if(res.collision)
+        {
+            for (collision_detection::CollisionResult::ContactMap::const_iterator it = res.contacts.begin(); it != res.contacts.end();
+           ++it)
+                for (std::size_t j = 0; j < it->second.size(); ++j)
+                {
+                    moveit_msgs::CollisionContact contact;
+                    contact.source = it->second[j].body_name_1.c_str(); 
+                    contact.dest = it->second[j].body_name_2.c_str();
+                    contacts.push_back(contact);
+                }
+        }
+        response.collision = res.collision;
+        response.distance = -1;
+        response.contacts = contacts;
+        obstaclesInfoPub_.publish(response);
+    }
+    
+    return !res.collision;*/
+    return !m_scene->isStateColliding(
             *m_ref_state, m_robot_model->planningGroupName(), verbose);
 }
 
@@ -541,7 +519,7 @@ auto MoveItCollisionChecker::checkInterpolatedPathCollision(
         
         if(widx==waypoint_count-1)
         {
-            bool result = isStateValid(p, distToObst,false);
+            bool result = isStateValid(p, distToObst,true);
             planning_scene::PlanningScene* scene_nonconst = const_cast <planning_scene::PlanningScene*> (m_scene.get());
             collision_detection::GridWorld* grid_world = dynamic_cast< collision_detection::GridWorld*>(scene_nonconst->getWorldNonConst().get());
             if(grid_world && distToObst!=-1 && distToObst<clearance_threshold_)
