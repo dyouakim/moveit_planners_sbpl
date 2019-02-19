@@ -143,22 +143,40 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
     }
     std::string why;
     ROS_ERROR_STREAM("here before initSBPL current "<<req_msg.request_id<<" last "<<lastRequestId_);
-    
-    if ( req_msg.request_id!=lastRequestId_ && !initSBPL(why)) {
-        ROS_WARN_NAMED(PP_LOGGER, "Failed to initialize SBPL (%s)", why.c_str());
-        res.planning_time_ = 0.0;
-        res.error_code_.val = moveit_msgs::MoveItErrorCodes::PLANNING_FAILED;
-        res.iterations_ = -1;
-        res.cost_ = -1;
-        return false;
-    }
-    else if (req_msg.request_id==lastRequestId_)
+    if(req_msg.planner_id.find("tra")!=std::string::npos)
     {
-        planning_scene::PlanningScene* scene_nonconst = const_cast <planning_scene::PlanningScene*> (scene.get());
-        collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(scene_nonconst->getWorldNonConst().get());
-        m_planner->updateGrid(grid_world->grid());
+        if (req_msg.request_id!=lastRequestId_ &&  !initSBPL(why)) {
+            ROS_WARN_NAMED(PP_LOGGER, "Failed to initialize SBPL (%s)", why.c_str());
+            res.planning_time_ = 0.0;
+            res.error_code_.val = moveit_msgs::MoveItErrorCodes::PLANNING_FAILED;
+            res.iterations_ = -1;
+            res.cost_ = -1;
+            return false;
+        }
+        else if (req_msg.request_id==lastRequestId_)
+        {
+            planning_scene::PlanningScene* scene_nonconst = const_cast <planning_scene::PlanningScene*> (scene.get());
+            collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(scene_nonconst->getWorldNonConst().get());
+            m_planner->updateGrid(grid_world->grid());
+        }
     }
-
+    else
+    {
+        if (!initSBPL(why))
+        {
+            ROS_WARN_NAMED(PP_LOGGER, "Failed to initialize SBPL (%s)", why.c_str());
+            res.planning_time_ = 0.0;
+            res.error_code_.val = moveit_msgs::MoveItErrorCodes::PLANNING_FAILED;
+            res.iterations_ = -1;
+            res.cost_ = -1;
+            return false; 
+        }
+    }
+    ROS_ERROR_STREAM("here after initSBPL current "<<req_msg.request_id<<" last "<<lastRequestId_);
+    
+    ROS_ERROR_STREAM("initSBPL done!");
+    
+   
     ROS_DEBUG_NAMED(PP_LOGGER, "Successfully initialized SBPL");
 
     
@@ -167,6 +185,7 @@ bool SBPLPlanningContext::solve(planning_interface::MotionPlanResponse& res)
     scene->getPlanningSceneMsg(scene_msg);
 
     moveit_msgs::MotionPlanResponse res_msg;
+    ROS_ERROR_STREAM("in sbpl_context before calling solve!");
     if (!m_planner->solve(scene_msg, req_msg, res_msg)) {
         res.trajectory_.reset();
         res.planning_time_ = res_msg.planning_time;
@@ -450,20 +469,15 @@ bool SBPLPlanningContext::initSBPL(std::string& why)
     
     collision_detection::GridWorld* grid_world = dynamic_cast<  collision_detection::GridWorld*>(scene_nonconst->getWorldNonConst().get());
     
-
+    ROS_ERROR_STREAM("before checking for grid world! initSBPL");
     if(grid_world)
     {
-        /*int x,y,z;
-        grid_world->grid()->getDistanceField()->worldToGrid(5,2.5,4.3,x,y,z);
-        ROS_ERROR_STREAM("grid dist to table is "<<grid_world->grid()->getDistanceField()->isCellValid(x,y,z));
-        */
-        ROS_ERROR_STREAM("SBPL CONTEXT Number of collision objects "<<grid_world->getObjectIds().size());
-        ROS_ERROR_STREAM("IN INIT SBPL PRINT ");
         grid_world->printObjectsSize();
 
         m_planner = std::make_shared<smpl::PlannerInterface>(
                 m_robot_model, &m_collision_checker, grid_world->grid());
 
+        ROS_ERROR_STREAM("here before init planner_interface!");
         if (!m_planner->init(m_pp)) {
             why = "Failed to initialize Planner Interface";
             return false;
@@ -608,8 +622,7 @@ bool SBPLPlanningContext::initHeuristicGrid(
     const double max_distance = m_use_bfs ?
             std::max (m_pp.planning_link_sphere_radius, m_pp.base_radius) + res_x_m : res_x_m;
 
-
-    Eigen::Affine3d T_planning_workspace;
+       Eigen::Affine3d T_planning_workspace;
     T_planning_workspace = Eigen::Translation3d(
             workspace_aabb.pose.position.x - 0.5 * workspace_aabb.extents.x,
             workspace_aabb.pose.position.y - 0.5 * workspace_aabb.extents.y,
@@ -723,7 +736,6 @@ bool SBPLPlanningContext::initHeuristicGrid(
     {
         grid_world->grid()->setReferenceFrame(scene.getPlanningFrame());
         //m_grid =  std::make_shared<sbpl::OccupancyGrid>(*grid_world->grid());
-        ROS_ERROR_STREAM("IN INIT HEURISTIC PRINT ");
         grid_world->printObjectsSize();
     }
     else
