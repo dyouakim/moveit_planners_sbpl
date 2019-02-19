@@ -177,7 +177,13 @@ planning_interface::PlanningContextPtr SBPLPlannerManager::getPlanningContext(
         }
     }
 
-    ROS_WARN_STREAM("in manager with req_id "<<req.request_id);
+    planning_interface::MotionPlanRequest* nonconst_req = const_cast<planning_interface::MotionPlanRequest*> (&req);
+
+    if(lastRequestId_!=-1 && req.planner_id=="Mobile_Manip[multiarastar_mbfs_manip]")
+    {
+        nonconst_req->request_id = lastRequestId_+1;
+        
+    }
     SBPLPlanningContextPtr sbpl_context;// = new SBPLPlanningContext(sbpl_model, req.group_name);
 
 
@@ -196,15 +202,15 @@ planning_interface::PlanningContextPtr SBPLPlannerManager::getPlanningContext(
     }
     
     ROS_WARN_STREAM("Request current "<<req.request_id<< " and previous "<< lastRequestId_);
-    if (req.request_id!=lastRequestId_  && !sbpl_context->init(all_params)) {
+    if (nonconst_req->request_id!=lastRequestId_  && !sbpl_context->init(all_params)) {
         ROS_ERROR_NAMED(PP_LOGGER, "Failed to initialize SBPL Planning Context");
         //delete sbpl_context;
         return context;
     }
 
-    const_cast<SBPLPlannerManager*>(this)->lastRequestId_ = req.request_id;
+    const_cast<SBPLPlannerManager*>(this)->lastRequestId_ = nonconst_req->request_id;
     sbpl_context->setPlanningScene(planning_scene);
-    sbpl_context->setMotionPlanRequest(req);
+    sbpl_context->setMotionPlanRequest(*nonconst_req);
    
     return sbpl_context;
 }
